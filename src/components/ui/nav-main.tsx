@@ -54,11 +54,12 @@ const NavLink = ({
     </Link>
   );
 
-/** "Something new since your last visit": a pinging dot and how many, at the end of a row. */
+/** "Something new since your last visit": a pinging dot and how many, at the end of a row. Overflow
+ * stays visible: the sidebar truncates a row's last span, which would clip the dot's glow. */
 export const FreshMarker = ({ count }: { count: number }) => (
   <span
     aria-label={`${count} ${count === 1 ? 'novedad' : 'novedades'} sin ver`}
-    className="ml-auto flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-pcnGreen"
+    className="ml-auto flex shrink-0 items-center gap-1.5 overflow-visible! pl-1 font-mono text-[9px] tracking-widest text-pcnGreen"
   >
     <span aria-hidden className="relative flex size-1.5">
       <span className="absolute inset-0 animate-ping rounded-full bg-pcnGreen" />
@@ -73,7 +74,7 @@ export const FreshMarker = ({ count }: { count: number }) => (
  * blinking cursor and a light sweep running across it now and then.
  */
 export const CountBadge = ({ count }: { count: number }) => (
-  <span className="ml-auto drop-shadow-[0_0_6px_rgba(4,244,190,0.55)]">
+  <span className="ml-auto shrink-0 overflow-visible! drop-shadow-[0_0_6px_rgba(4,244,190,0.55)]">
     <span className="relative isolate flex h-5 items-center gap-0.5 overflow-hidden bg-pcnGreen pr-1.5 pl-2 font-mono text-[10px] leading-none font-bold text-black tabular-nums [clip-path:polygon(5px_0,100%_0,100%_calc(100%-5px),calc(100%-5px)_100%,0_100%,0_5px)] before:absolute before:inset-y-0 before:left-0 before:-z-10 before:w-1/3 before:animate-cta-shine before:bg-linear-to-r before:from-transparent before:via-white/70 before:to-transparent motion-reduce:before:hidden">
       {count > 99 ? '99+' : String(count).padStart(2, '0')}
       <span
