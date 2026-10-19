@@ -42,6 +42,14 @@ const nextConfig = {
   async headers() {
     return [
       { source: '/:path*', headers: securityHeaders },
+      // The MCP OAuth server (docs/mcp.md): consent screen never framed, nothing cached anywhere.
+      {
+        source: '/oauth/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Cache-Control', value: 'no-store' },
+        ],
+      },
       // Images and fonts in public/ have no hash in their name, so Next serves them with
       // max-age=0 and CloudFront would ask the server for them again on every request. Browsers
       // keep them for an hour and CloudFront for a week; each deploy invalidates CloudFront
