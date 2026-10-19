@@ -1,674 +1,302 @@
-# Sistema de Eventos
+# Sistema de eventos
 
-Documentación completa del sistema de gestión de eventos de la plataforma PCN.
+Cómo funcionan los eventos de programaConNosotros: quién los gestiona, cómo se inscribe la gente,
+la lista de espera, los avisos y el recuerdo que queda cuando el evento termina. Los casos de prueba
+manuales están en [`test-cases-eventos.md`](./test-cases-eventos.md).
 
-## Tabla de Contenidos
+## Índice
 
-1. [Modelo de Datos](#modelo-de-datos)
-2. [Funcionalidades Principales](#funcionalidades-principales)
-3. [Rutas y Páginas](#rutas-y-páginas)
-4. [Server Actions](#server-actions)
-5. [Componentes](#componentes)
-6. [Validaciones y Reglas de Negocio](#validaciones-y-reglas-de-negocio)
-7. [Flujos de Usuario](#flujos-de-usuario)
-
----
-
-## Modelo de Datos
-
-### Event
-
-Modelo principal que representa un evento en la plataforma.
-
-```prisma
-model Event {
-  id          String    @id @default(cuid())
-  date        DateTime
-  endDate     DateTime?
-  name        String
-  description String
-  city        String
-  address     String
-  placeName   String
-  flyerSrc    String
-  latitude    Float?
-  longitude   Float?
-  capacity    Int?      // Cupo máximo (opcional)
-  deletedAt   DateTime? // Eliminación lógica
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  images      Image[]
-  registrations EventRegistration[]
-  sponsors    Sponsor[]
-}
-```
-
-**Campos importantes:**
-
-- `capacity`: Cupo máximo del evento. Si es `null`, el evento tiene cupo ilimitado.
-- `deletedAt`: Campo para eliminación lógica. Los eventos eliminados no se muestran en listados públicos.
-- `endDate`: Fecha de finalización opcional. Si no se especifica, se usa `date` como referencia.
-
-### EventRegistration
-
-Representa la inscripción de un usuario a un evento.
-
-```prisma
-model EventRegistration {
-  id              String           @id @default(cuid())
-  eventId         String
-  firstName       String
-  lastName        String
-  email           String
-  type            RegistrationType
-  workTitle       String?
-  workPlace       String?
-  studyField      String?
-  studyPlace      String?
-  userId          String?
-  cancelledAt     DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-
-  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@unique([eventId, email])
-  @@index([eventId])
-  @@index([userId])
-  @@index([cancelledAt])
-}
-```
-
-**Campos importantes:**
-
-- `type`: Tipo de registro (`STUDENT` o `PROFESSIONAL`)
-- `cancelledAt`: Si tiene valor, la inscripción está cancelada (no se cuenta para cupos)
-- `userId`: Opcional. Si el usuario está logueado, se vincula su cuenta.
-- Campos condicionales:
-  - `workTitle` y `workPlace`: Requeridos si `type === 'PROFESSIONAL'`
-  - `studyField` y `studyPlace`: Requeridos si `type === 'STUDENT'`
-
-### Sponsor
-
-Representa un patrocinador de un evento.
-
-```prisma
-model Sponsor {
-  id        String   @id @default(cuid())
-  eventId   String
-  name      String
-  website   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-
-  @@index([eventId])
-}
-```
-
-### RegistrationType
-
-Enum que define el tipo de inscripción.
-
-```prisma
-enum RegistrationType {
-  STUDENT
-  PROFESSIONAL
-}
-```
+1. [Modelo de datos](#modelo-de-datos)
+2. [Permisos](#permisos)
+3. [Rutas](#rutas)
+4. [Inscripción y lista de espera](#inscripción-y-lista-de-espera)
+5. [Crear y editar eventos](#crear-y-editar-eventos)
+6. [Avisos: notificaciones y emails](#avisos-notificaciones-y-emails)
+7. [Charlas y call for speakers](#charlas-y-call-for-speakers)
+8. [Eventos pasados: el recuerdo](#eventos-pasados-el-recuerdo)
+9. [Caché y tiempo real](#caché-y-tiempo-real)
+10. [Mapa de archivos](#mapa-de-archivos)
 
 ---
 
-## Funcionalidades Principales
+## Modelo de datos
 
-### 1. Gestión de Eventos (Admin)
+Todo está en `prisma/schema.prisma`; acá va lo que importa para entender el comportamiento.
 
-- **Crear eventos**: Formulario completo con validación
-- **Editar eventos**: Modificación de todos los campos
-- **Eliminar eventos**: Eliminación lógica (soft delete)
-- **Gestionar sponsors**: Agregar múltiples sponsors con nombre y website opcional
+### `Event`
 
-### 2. Inscripción a Eventos
+| Campo                                        | Para qué                                                                                                   |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `date`, `endDate`                            | Inicio y fin opcional. Sin `endDate`, el evento dura hasta el final de su día (`hasEventEnded`).           |
+| `city`, `address`, `placeName`               | Opcionales en la base; obligatorios en el form salvo que el evento sea online.                             |
+| `isOnline`, `streamingUrl`                   | Evento online y link al stream.                                                                            |
+| `googleMapsUrl`                              | Link de Google Maps del lugar; de ahí sale el mapa embebido y el link "cómo llegar".                       |
+| `flyerImages`                                | Lista de URLs de flyers (carrusel). Se suben a S3 en `events/flyers/`.                                     |
+| `capacity`                                   | Cupo. `null` = sin límite.                                                                                 |
+| `markedAsFull`                               | Lleno a mano: nadie más se inscribe (va a la lista de espera) y no se promueve a nadie.                    |
+| `externalRegistrationUrl`                    | Inscripción en otro sitio (Luma, etc.): el botón lleva ahí y el sitio no gestiona inscripciones ni espera. |
+| `callForSpeakersEnabled`                     | Abre `/eventos/[id]/proponer-charla` para que la comunidad proponga charlas.                               |
+| `shortcut`                                   | Slug para URLs cortas en flyers (`/cowork`). Se reutiliza: lleva al **próximo** evento con ese slug.       |
+| `coverPhotoId`, `coverFocusX/Y`, `coverZoom` | Portada del recuerdo de un evento pasado y su encuadre (punto focal en %, zoom en %).                      |
+| `createdById`                                | Quién lo creó (null en eventos viejos). Define quién puede eliminarlo.                                     |
+| `deletedAt`                                  | Eliminación lógica.                                                                                        |
 
-- **Inscripción pública**: Cualquier usuario puede inscribirse
-- **Pre-fill de datos**: Si el usuario está logueado, se pre-llenan sus datos
-- **Validación de cupo**: Verificación al cargar la página y al submitear
-- **Prevención de duplicados**: No se permite inscribirse dos veces con el mismo email
+Relaciones: `organizers` (`EventOrganizer`), `registrations`, `waitlistEntries`, `sponsors`,
+`sponsorClicks`, `flyerDesigners`, `broadcasts`, `announcements`, `talkProposals`, `talks` y
+`galleryItems` (fotos y videos de la galería asociados al evento).
 
-### 3. Gestión de Inscripciones
+### `EventRegistration`
 
-- **Cancelación de inscripción**: Los usuarios pueden cancelar su inscripción
-  - Si está logueado: Cancelación directa
-  - Si no está logueado: Debe ingresar su email
-- **Eliminación de inscripción (Admin)**: Los administradores pueden eliminar inscripciones físicamente
-- **Re-inscripción**: Si un usuario canceló, puede volver a inscribirse (se reactiva la inscripción)
+Una inscripción de un **usuario con cuenta**: ya no hay inscripción anónima ni formulario con
+nombre, email o tipo estudiante/profesional. Esos datos salen del perfil del usuario (`jobTitle`,
+`enterprise`, `career`, `studyPlace`).
 
-### 4. Sistema de Cupos
+- `@@unique([eventId, userId])`: una fila por persona y evento.
+- `cancelledAt`: la baja es lógica. Volver a anotarse reactiva la misma fila.
 
-- **Cupo opcional**: Los eventos pueden tener cupo definido o ser ilimitados
-- **Validación doble**: Se valida al cargar la página y al submitear el formulario
-- **Exclusión de cancelados**: Las inscripciones canceladas no cuentan para el cupo
-- **Liberación de cupo**: Al eliminar o cancelar una inscripción, se libera el cupo
+### `EventWaitlistEntry`
 
-### 5. Visualización
+La lista de espera. Una fila por persona y evento; está **activa** mientras `cancelledAt` y
+`promotedAt` sean null (`activeWaitlistWhere`). El orden es `createdAt` (y `id` para desempatar);
+quien sale y vuelve a anotarse entra al final de la fila.
 
-- **Página de detalle**: Muestra toda la información del evento
-- **Lista de inscripciones (Admin)**: Los administradores pueden ver todas las inscripciones
-- **Información de cupo**: Se muestra cuántos cupos quedan disponibles
-- **Mapa**: Si hay coordenadas, se muestra un mapa con la ubicación
+### `EventOrganizer`
 
----
+Usuarios que organizan el evento (ambassadors o no). Quien crea el evento queda como organizador.
 
-## Rutas y Páginas
+### `EventFlyerDesigner`
 
-### Páginas Públicas
+Quién diseñó el flyer del evento entero (no por imagen): un usuario (`userId`) o solo un nombre; el
+nombre se guarda siempre. Si el evento se queda sin flyers, se borran los diseñadores.
 
-#### `/eventos`
+### `Sponsor` y `SponsorClick`
 
-- **Componente**: `src/app/(platform)/eventos/page.tsx`
-- **Descripción**: Lista todos los eventos (excluye eliminados)
-- **Acceso**: Público
+Sponsors del evento con `name`, `website` y `logo` (una ruta de `/public`, como los partners del
+sitio, o una URL https). Al editar el evento se borran y se recrean, por eso `SponsorClick` cuenta
+los clics por nombre y evento, no por fila de `Sponsor`.
 
-#### `/eventos/[id]`
+### `EventBroadcast`
 
-- **Componente**: `src/app/(platform)/eventos/[id]/page.tsx`
-- **Descripción**: Página de detalle del evento
-- **Características**:
-  - Muestra toda la información del evento
-  - Botón de inscripción (si el evento no ha pasado)
-  - Botón de cancelación (si el usuario está registrado)
-  - Lista de sponsors en la columna lateral
-  - Lista de inscripciones (solo para admins)
-  - Mapa con la ubicación (si hay coordenadas)
-- **Acceso**: Público
-
-#### `/eventos/[id]/inscripcion`
-
-- **Componente**: `src/app/(platform)/eventos/[id]/inscripcion/page.tsx`
-- **Descripción**: Página de inscripción al evento
-- **Características**:
-  - Formulario de inscripción
-  - Pre-fill de datos si el usuario está logueado
-  - Validación de cupo disponible
-  - Mensaje si ya está inscrito
-  - Mensaje si el cupo está completo
-- **Acceso**: Público
-
-#### `/meetup`
-
-- **Componente**: `src/app/meetup/page.tsx`
-- **Descripción**: Redirige automáticamente a la página de inscripción del próximo "dev meetup"
-- **Lógica**: Busca el próximo evento cuyo nombre contenga "meetup" (case-insensitive)
-- **Acceso**: Público
-
-### Páginas de Administración
-
-#### `/eventos/nuevo`
-
-- **Componente**: `src/app/(platform)/eventos/nuevo/page.tsx`
-- **Descripción**: Formulario para crear un nuevo evento
-- **Acceso**: Solo administradores (redirige si no es admin)
-
-#### `/eventos/[id]/editar`
-
-- **Componente**: `src/app/(platform)/eventos/[id]/editar/page.tsx`
-- **Descripción**: Formulario para editar un evento existente
-- **Características**:
-  - Carga los datos actuales del evento
-  - Permite editar todos los campos
-  - Botón para eliminar el evento (soft delete)
-- **Acceso**: Solo administradores
+Historial de los mails que quien gestiona el evento mandó a su gente: `audience` (`confirmados`,
+`lista-de-espera` o `todos`), asunto, mensaje, cuántos destinatarios y cuántos fallaron.
 
 ---
 
-## Server Actions
+## Permisos
 
-### Eventos
+Las reglas están en `src/lib/event-permissions.ts` (funciones puras) y `src/lib/event-access.ts`
+(las que consultan la base).
 
-#### `create-event.ts`
+| Quién                           | Crear | Editar y gestionar | Eliminar / elegir organizadores |
+| ------------------------------- | :---: | :----------------: | :-----------------------------: |
+| Admin del sitio (`role: ADMIN`) |  sí   |       todos        |              todos              |
+| Ambassador                      |  sí   |    los que creó    |          los que creó           |
+| Organizador del evento          |  no   |     ese evento     |               no                |
+| Cualquier usuario con cuenta    |  no   |         no         |               no                |
 
-- **Ruta**: `src/actions/events/create-event.ts`
-- **Función**: `createEvent(data: EventFormData)`
-- **Descripción**: Crea un nuevo evento en la base de datos
-- **Validaciones**:
-  - Verifica que el usuario sea administrador
-  - Valida los datos con el schema de Zod
-  - Convierte fechas de string a Date
-- **Retorno**: Redirige a la página de detalle del evento creado
+"Gestionar" (`canEditEvent`, `canManageEventById`) incluye editar el evento, ver inscripciones y
+lista de espera, borrar inscripciones, mandar mails, gestionar charlas y propuestas, publicar
+anuncios del evento y elegir la portada del recuerdo. Un evento eliminado solo lo edita un admin.
 
-#### `update-event.ts`
+Solo para admins: el agente que completa el form desde los flyers y crear charlas desde una foto de
+la galería.
 
-- **Ruta**: `src/actions/events/update-event.ts`
-- **Función**: `updateEvent(id: string, data: EventFormData)`
-- **Descripción**: Actualiza un evento existente
-- **Validaciones**:
-  - Verifica que el usuario sea administrador
-  - Verifica que el evento exista
-  - Valida los datos con el schema de Zod
-- **Características**:
-  - Actualiza sponsors en una transacción (elimina los antiguos y crea los nuevos)
-- **Retorno**: Redirige a la página de detalle del evento
+Helpers:
 
-#### `delete-event.ts`
-
-- **Ruta**: `src/actions/events/delete-event.ts`
-- **Función**: `deleteEvent(id: string)`
-- **Descripción**: Elimina lógicamente un evento (soft delete)
-- **Validaciones**:
-  - Verifica que el usuario sea administrador
-  - Verifica que el evento exista
-- **Retorno**: Redirige a la lista de eventos
-
-#### `fetch-events.ts`
-
-- **Ruta**: `src/actions/events/fetch-events.ts`
-- **Función**: `fetchEvents()`
-- **Descripción**: Obtiene todos los eventos no eliminados
-- **Orden**: Por fecha descendente (más recientes primero)
-
-#### `fetch-event.ts`
-
-- **Ruta**: `src/actions/events/fetch-event.ts`
-- **Función**: `fetchEvent(id: string)`
-- **Descripción**: Obtiene un evento específico para visualización pública
-- **Filtros**: Excluye eventos eliminados
-- **Includes**: `images`, `sponsors`
-
-#### `fetch-event-for-edit.ts`
-
-- **Ruta**: `src/actions/events/fetch-event-for-edit.ts`
-- **Función**: `fetchEventForEdit(id: string)`
-- **Descripción**: Obtiene un evento específico para edición (incluye eliminados)
-- **Includes**: `images`, `sponsors`
-
-### Inscripciones
-
-#### `register-event.ts`
-
-- **Ruta**: `src/actions/events/register-event.ts`
-- **Función**: `registerEvent(eventId: string, data: EventRegistrationFormData)`
-- **Descripción**: Registra un usuario a un evento
-- **Validaciones**:
-  - Verifica que el evento exista y no esté eliminado
-  - Verifica que no haya una inscripción activa con el mismo email
-  - Valida el cupo disponible (excluyendo cancelados)
-- **Lógica especial**:
-  - Si existe una inscripción cancelada con el mismo email, la reactiva en lugar de crear una nueva
-- **Retorno**: Redirige a la página de detalle del evento
-
-#### `cancel-registration.ts`
-
-- **Ruta**: `src/actions/events/cancel-registration.ts`
-- **Función**: `cancelRegistration(params: CancelRegistrationParams)`
-- **Descripción**: Cancela una inscripción (marca como cancelada, no elimina)
-- **Parámetros**:
-  - `registrationId`: Si el usuario está logueado
-  - `eventId`: ID del evento
-  - `email`: Si el usuario no está logueado
-- **Validaciones**:
-  - Si hay `registrationId`, verifica que pertenezca al usuario logueado
-  - Si hay `email`, busca la inscripción por email
-  - Verifica que la inscripción no esté ya cancelada
-- **Efecto**: Marca `cancelledAt` con la fecha actual
-
-#### `delete-registration.ts`
-
-- **Ruta**: `src/actions/events/delete-registration.ts`
-- **Función**: `deleteRegistration(registrationId: string)`
-- **Descripción**: Elimina físicamente una inscripción (solo admins)
-- **Validaciones**:
-  - Verifica que el usuario sea administrador
-  - Verifica que la inscripción exista
-- **Efecto**: Elimina el registro de la base de datos (libera el cupo)
-
-### Cupos
-
-#### `check-event-capacity.ts`
-
-- **Ruta**: `src/actions/events/check-event-capacity.ts`
-- **Función**: `checkEventCapacity(eventId: string)`
-- **Descripción**: Verifica el cupo disponible de un evento
-- **Retorno**:
-  ```typescript
-  {
-    available: boolean;
-    current: number;
-    capacity: number | null;
-    message?: string;
-  }
-  ```
-- **Lógica**: Cuenta solo inscripciones activas (`cancelledAt: null`)
+- `canManageEventById(user, eventId)`: el chequeo de las server actions.
+- `getEventManager(eventId)` / `requireEventManager(eventId)`: el usuario de la sesión si gestiona
+  el evento; la segunda lanza `No autorizado`.
+- `canManageSomeEvent(user)`: admin, ambassador u organizador de algún evento (filtro barato antes
+  de buscar el evento concreto).
 
 ---
 
-## Componentes
+## Rutas
 
-### Formularios
+### Públicas
 
-#### `EventForm`
+| Ruta                            | Qué hace                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `/eventos`                      | El "museo" de eventos: próximos y pasados agrupados por año, con conteo de inscriptos, fotos y charlas.          |
+| `/eventos/[id]`                 | Detalle. Si el evento ya terminó, muestra el recuerdo (`PastEventMemory`) en vez de la página de inscripción.    |
+| `/eventos/[id]/inscripcion`     | Ya no tiene formulario: redirige a la URL externa o a `/eventos/[id]` (manteniendo `?autoRegister=true`).        |
+| `/eventos/[id]/proponer-charla` | Formulario de propuesta de charla (requiere sesión y `callForSpeakersEnabled`).                                  |
+| `/eventos/[id]/calendario.ics`  | Archivo iCalendar para Apple Calendar, Outlook, etc. (`src/lib/ics.ts`). El link a Google Calendar va aparte.    |
+| `/eventos/[id]/og-image`        | Imagen Open Graph generada para eventos sin flyer ni fotos.                                                      |
+| `/[shortcut]`                   | URL corta de flyer: redirige al próximo evento con ese `shortcut`, o a `/eventos` si no hay. Registra la visita. |
 
-- **Ruta**: `src/components/events/event-form.tsx`
-- **Descripción**: Formulario reutilizable para crear/editar eventos
-- **Características**:
-  - Usa React Hook Form con validación Zod
-  - Maneja sponsors dinámicamente con `useFieldArray`
-  - Todos los inputs en filas separadas
-  - Validación en tiempo real
-- **Props**:
-  - `defaultValues`: Valores iniciales (para edición)
-  - `onSubmit`: Función a ejecutar al submitear
-  - `onCancel`: Función a ejecutar al cancelar
+### Para quien gestiona el evento
 
-#### `EventRegistrationForm`
-
-- **Ruta**: `src/components/events/event-registration-form.tsx`
-- **Descripción**: Formulario de inscripción a eventos
-- **Características**:
-  - Campos condicionales según el tipo (STUDENT/PROFESSIONAL)
-  - Pre-fill de datos si el usuario está logueado
-  - Muestra información de cupo disponible
-  - Validación de cupo antes de submitear
-- **Props**:
-  - `eventId`: ID del evento
-  - `userData`: Datos del usuario (opcional)
-  - `capacityInfo`: Información del cupo
-
-### Botones y Acciones
-
-#### `CancelRegistrationButton`
-
-- **Ruta**: `src/components/events/cancel-registration-button.tsx`
-- **Descripción**: Botón para cancelar una inscripción
-- **Características**:
-  - Si el usuario está logueado: Cancelación directa
-  - Si no está logueado: Muestra un diálogo para ingresar email
-- **Props**:
-  - `eventId`: ID del evento
-  - `registrationId`: ID de la inscripción (si está logueado)
-  - `isLoggedIn`: Si el usuario está logueado
-
-#### `DeleteRegistrationButton`
-
-- **Ruta**: `src/components/events/delete-registration-button.tsx`
-- **Descripción**: Botón para eliminar una inscripción (solo admins)
-- **Características**:
-  - Diálogo de confirmación antes de eliminar
-  - Muestra el nombre del usuario en la confirmación
-- **Props**:
-  - `registrationId`: ID de la inscripción
-  - `userName`: Nombre del usuario (para mostrar en confirmación)
-
-#### `DeleteEventButton`
-
-- **Ruta**: `src/components/events/delete-event-button.tsx`
-- **Descripción**: Botón para eliminar un evento (soft delete)
-- **Características**:
-  - Diálogo de confirmación
-  - Solo visible para administradores
-
-### Visualización
-
-#### `EventPhotos`
-
-- **Ruta**: `src/components/events/event-photos.tsx`
-- **Descripción**: Galería de fotos del evento
+| Ruta                                  | Qué hace                                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `/eventos/nuevo`                      | Crear evento (admins y ambassadors).                                                      |
+| `/eventos/[id]/editar`                | Editar o eliminar el evento.                                                              |
+| `/eventos/[id]/inscripciones`         | Resumen (activas, estudiantes, profesionales, en espera), lista de espera, mails y tabla. |
+| `/eventos/[id]/organizadores`         | Sumar y quitar organizadores (admins y quien creó el evento).                             |
+| `/eventos/[id]/charlas`               | Cargar y editar las charlas que se dieron.                                                |
+| `/eventos/[id]/propuestas-de-charlas` | Revisar propuestas: aceptar, rechazar, borrar o convertirlas en charla.                   |
 
 ---
 
-## Validaciones y Reglas de Negocio
+## Inscripción y lista de espera
 
-### Validación de Eventos
+### Reglas
 
-#### Schema: `event-schema.ts`
+1. **Hace falta cuenta.** Sin sesión, el botón lleva a
+   `/iniciar-sesion?redirect=/eventos/[id]&autoRegister=true`; al volver, `EventDetailClient` ve
+   `autoRegister=true` e inscribe solo. Si la sesión venció con la página abierta, la action lanza
+   `AuthRequiredError` y la UI vuelve a mandar al login.
+2. **Inscripción externa:** con `externalRegistrationUrl`, el botón abre ese link y
+   `registerEvent` rechaza la inscripción.
+3. **Evento terminado:** no acepta inscripciones (no deben contar como asistencia).
+4. **Con lugar:** se crea la inscripción, o se reactiva la cancelada.
+5. **Sin lugar** (`markedAsFull` o activas ≥ `capacity`): la persona entra a la lista de espera y
+   ve su posición.
+6. Las inscripciones canceladas no cuentan para el cupo.
+7. Rate limit `eventRegistration`: 20 inscripciones o bajas cada 10 minutos.
 
-- **Nombre**: Requerido, string
-- **Descripción**: Requerido, string
-- **Fecha**: Requerido, formato `datetime-local`
-- **Fecha de fin**: Opcional, debe ser posterior a la fecha de inicio
-- **Ciudad**: Requerido, string
-- **Dirección**: Requerido, string
-- **Nombre del lugar**: Requerido, string
-- **URL del flyer**: Requerido, debe ser una URL válida
-- **Latitud/Longitud**: Opcionales, números
-- **Cupo**: Opcional, número entero mayor a 0
-- **Sponsors**: Array opcional, cada sponsor debe tener:
-  - `name`: Requerido
-  - `website`: Opcional, debe ser una URL válida
+### Concurrencia
 
-### Validación de Inscripciones
+Toda inscripción, baja, borrado o promoción corre en una transacción que primero toma
+`lockEvent(tx, eventId)`: un `SELECT … FOR UPDATE` sobre la fila del evento. Así dos personas no se
+quedan con el último lugar y una baja no promueve dos veces. Si igual chocan dos pedidos del mismo
+usuario, el unique `(eventId, userId)` corta con `P2002` y se responde "Ya estás inscripto…".
 
-#### Schema: `event-registration-schema.ts`
+### Promoción desde la lista de espera
 
-- **Nombre**: Requerido
-- **Apellido**: Requerido
-- **Email**: Requerido, formato de email válido
-- **Tipo**: Requerido, `STUDENT` o `PROFESSIONAL`
-- **Campos condicionales**:
-  - Si `type === 'PROFESSIONAL'`:
-    - `workTitle`: Requerido
-    - `workPlace`: Requerido
-  - Si `type === 'STUDENT'`:
-    - `studyField`: Requerido
-    - `studyPlace`: Requerido
+`promoteFromWaitlist` (`src/lib/event-waitlist.ts`) llena los lugares libres en orden de llegada.
+Corre:
 
-### Reglas de Negocio
+- al cancelar una inscripción (`cancelRegistration`);
+- al borrar una inscripción activa (`deleteRegistration`);
+- al editar el evento (`fillFromWaitlist`, por si subió el cupo o se desmarcó "lleno");
+- al inscribirse alguien, antes de evaluar su pedido: un lugar que quedó libre es primero de quien
+  ya esperaba.
 
-#### Cupos
+No promueve si el evento está `markedAsFull`, tiene inscripción externa o ya terminó. A cada persona
+promovida le llega un email (`WaitlistPromotionEmail`) y los admins reciben una notificación. Los
+avisos van fuera de la transacción: si falla el email, la promoción queda igual.
 
-1. Si un evento tiene `capacity === null`, tiene cupo ilimitado
-2. Las inscripciones canceladas (`cancelledAt !== null`) no cuentan para el cupo
-3. La validación de cupo se hace:
-   - Al cargar la página de inscripción
-   - Antes de crear la inscripción en el servidor
-4. Si el cupo está completo, no se permite inscribirse
+### Baja
 
-#### Inscripciones
+`cancelRegistration` sirve para las dos cosas: si el usuario tiene una inscripción activa, la marca
+cancelada (y promueve); si no, lo saca de la lista de espera. Solo el propio usuario se da de baja.
 
-1. No se puede inscribir dos veces con el mismo email (inscripciones activas)
-2. Si un usuario canceló, puede volver a inscribirse (se reactiva la inscripción)
-3. Las inscripciones canceladas no se eliminan, solo se marcan con `cancelledAt`
-4. Solo los administradores pueden eliminar inscripciones físicamente
+`deleteRegistration` borra la fila de verdad; es para quien gestiona el evento.
 
-#### Eventos
+### Gestión de inscriptos
 
-1. Los eventos eliminados (`deletedAt !== null`) no se muestran en listados públicos
-2. Los administradores pueden ver eventos eliminados en la página de edición
-3. La eliminación es lógica (soft delete), no física
+En `/eventos/[id]/inscripciones`:
 
-#### Permisos
-
-1. Solo administradores pueden:
-   - Crear eventos (`/eventos/nuevo`)
-   - Editar eventos (`/eventos/[id]/editar`)
-   - Eliminar eventos
-   - Eliminar inscripciones
-   - Ver lista de inscripciones
-2. Cualquier usuario puede:
-   - Ver eventos
-   - Inscribirse a eventos
-   - Cancelar su propia inscripción
+- `getEventRegistrations` y `getEventWaitlist`: tabla de inscriptos con datos del perfil y la lista
+  de espera en orden de promoción.
+- `sendEventBroadcast`: mail a `confirmados`, `lista-de-espera` o `todos` (sin repetir emails), de a
+  lotes de 10. Asunto de 3 a 120 caracteres, mensaje de 10 a 5000, rate limit `eventBroadcast`
+  (5 por hora). Queda registrado en `EventBroadcast`. `getBroadcastAudienceCounts` da el alcance de
+  cada audiencia para el form.
 
 ---
 
-## Flujos de Usuario
+## Crear y editar eventos
 
-### Flujo: Crear un Evento (Admin)
+El form (`EventForm`, usado por `NewEventForm` y `EditEventForm`) valida con `eventSchema`
+(`src/schemas/event-schema.ts`), en el cliente y de nuevo en el servidor:
 
-1. Admin navega a `/eventos/nuevo`
-2. Sistema verifica que el usuario sea admin (redirige si no lo es)
-3. Admin completa el formulario:
-   - Información básica (nombre, descripción, fechas)
-   - Ubicación (ciudad, dirección, lugar)
-   - Coordenadas (opcional, para mapa)
-   - URL del flyer
-   - Cupo máximo (opcional)
-   - Sponsors (opcional, múltiples)
-4. Al submitear:
-   - Validación del formulario
-   - Creación del evento en BD
-   - Creación de sponsors asociados
-   - Redirección a `/eventos/[id]`
+- Nombre 3–200, descripción 10–2000.
+- `endDate` posterior a `date` (se valida en el form, porque en producción el mensaje de un error del
+  servidor no llega al navegador).
+- Presencial: ciudad (≥ 2), lugar (≥ 2) y dirección (≥ 5) obligatorios. Online: no.
+- `googleMapsUrl` solo acepta links de Google Maps.
+- Flyers: rutas del sitio o URLs. Diseñadores del flyer: hasta 40.
+- Sponsors con nombre, web opcional y logo (ruta del sitio o https).
+- `shortcut`: minúsculas, números y guiones.
+- `capacity`: entero mayor a 0 o vacío.
 
-### Flujo: Inscribirse a un Evento
+`createEvent` (rate limit `createContent`) guarda el evento con quien lo crea como organizador.
+`updateEvent` (rate limit `editContent`) reemplaza sponsors y diseñadores en una transacción y
+después llama a `fillFromWaitlist`. `deleteEvent` marca `deletedAt`.
 
-1. Usuario navega a `/eventos/[id]`
-2. Si el evento no ha pasado y hay cupo disponible, ve botón "Inscribirme al evento"
-3. Usuario hace clic y va a `/eventos/[id]/inscripcion`
-4. Sistema verifica:
-   - Si el usuario ya está inscrito → Muestra mensaje
-   - Si el cupo está completo → Muestra mensaje
-5. Si puede inscribirse:
-   - Si está logueado: Se pre-llenan sus datos
-   - Completa el formulario (tipo: estudiante o profesional)
-   - Campos condicionales según el tipo
-6. Al submitear:
-   - Validación del formulario
-   - Verificación de cupo (nuevamente)
-   - Creación de la inscripción
-   - Redirección a `/eventos/[id]`
+### Completar desde los flyers (admins)
 
-### Flujo: Cancelar una Inscripción
-
-#### Usuario Logueado
-
-1. Usuario navega a `/eventos/[id]`
-2. Si está registrado, ve botón "Cancelar inscripción"
-3. Usuario hace clic
-4. Sistema marca la inscripción con `cancelledAt = now()`
-5. Se libera el cupo
-6. Usuario puede volver a inscribirse más tarde
-
-#### Usuario No Logueado
-
-1. Usuario navega a `/eventos/[id]`
-2. Si está registrado, ve botón "Cancelar inscripción"
-3. Usuario hace clic → Se abre diálogo
-4. Usuario ingresa su email
-5. Sistema busca la inscripción por email
-6. Si la encuentra, la marca como cancelada
-7. Se libera el cupo
-
-### Flujo: Eliminar una Inscripción (Admin)
-
-1. Admin navega a `/eventos/[id]`
-2. Ve la lista de inscripciones
-3. Hace clic en el botón de eliminar (ícono de basura)
-4. Se muestra diálogo de confirmación
-5. Al confirmar:
-   - Se elimina físicamente la inscripción
-   - Se libera el cupo
-   - Se actualiza la lista
-
-### Flujo: Editar un Evento (Admin)
-
-1. Admin navega a `/eventos/[id]`
-2. Hace clic en "Editar evento"
-3. Va a `/eventos/[id]/editar`
-4. Sistema carga los datos actuales del evento
-5. Admin modifica los campos necesarios
-6. Al submitear:
-   - Validación del formulario
-   - Actualización del evento
-   - Actualización de sponsors (transacción: elimina antiguos, crea nuevos)
-   - Redirección a `/eventos/[id]`
-
-### Flujo: Eliminar un Evento (Admin)
-
-1. Admin navega a `/eventos/[id]/editar`
-2. Hace clic en "Eliminar evento"
-3. Se muestra diálogo de confirmación
-4. Al confirmar:
-   - Se marca `deletedAt = now()`
-   - El evento desaparece de los listados públicos
-   - Redirección a `/eventos`
+`FillFromFlyersButton` llama a `fillEventFromFlyers`, que le pasa los flyers subidos a
+`eventFlyerAgent` (`src/lib/event-flyer-agent.ts`, AI SDK `ToolLoopAgent`). El agente lee fecha,
+lugar, links, cupo y sponsors, y usa tools para copiar la dirección de un lugar ya usado
+(`findVenues`), los datos de un partner (`listPartners`) y el estilo de eventos anteriores
+(`recentEvents`). No guarda nada: devuelve valores para el form, filtrados por las mismas reglas
+del schema, y el admin revisa antes de guardar. Solo lee flyers de `events/flyers/`; necesita
+`AI_GATEWAY_API_KEY` y tiene rate limit `aiAgent`.
 
 ---
 
-## Consideraciones Técnicas
+## Avisos: notificaciones y emails
 
-### Manejo de Fechas
+| Cuándo                                                      | A quién                                | Cómo                                        |
+| ----------------------------------------------------------- | -------------------------------------- | ------------------------------------------- |
+| Se crea un evento futuro                                    | Todos (menos quien lo crea)            | Notificación con push + email a verificados |
+| Cambia la fecha o el lugar de un evento futuro              | Inscriptos activos (menos quien edita) | Notificación con push + email               |
+| Alguien consigue lugar desde la lista de espera             | Esa persona                            | Email                                       |
+| Inscripción, baja, entrada o salida de la espera, promoción | Admins                                 | Notificación (`notifyAdmins`)               |
+| Quien gestiona manda un mail                                | La audiencia elegida                   | Email (`EventBroadcastEmail`)               |
 
-- Las fechas se almacenan como `DateTime` en Prisma
-- En los formularios se usan inputs `datetime-local` (string)
-- Conversión: `new Date(dateString)` al guardar
-- Formateo: Funciones `formatDate()` y `formatTime()` para mostrar
-
-### Transacciones
-
-- La actualización de sponsors se hace en una transacción para garantizar consistencia:
-  1. Eliminar todos los sponsors existentes del evento
-  2. Crear los nuevos sponsors
-
-### Revalidación de Caché
-
-- Se usa `revalidatePath()` después de:
-  - Crear/editar/eliminar eventos
-  - Registrar/cancelar/eliminar inscripciones
-- Esto asegura que los datos mostrados estén actualizados
-
-### Validación de Cupo
-
-- **Doble validación**:
-  1. Al cargar la página (server-side)
-  2. Antes de crear la inscripción (server-side)
-- Esto previene condiciones de carrera cuando múltiples usuarios se inscriben simultáneamente
-
-### Soft Delete vs Hard Delete
-
-- **Eventos**: Soft delete (`deletedAt`)
-  - Permite recuperar eventos eliminados
-  - No se muestran en listados públicos
-- **Inscripciones**:
-  - Cancelación: Soft delete (`cancelledAt`)
-  - Eliminación (admin): Hard delete (eliminación física)
+Un evento que se carga ya pasado (para el archivo) no avisa a nadie. Los emails de alta y cambios
+usan `EventNoticeEmail` con `formatEventWhen` / `formatEventWhere` (`src/lib/event-notices.ts`).
 
 ---
 
-## Mejoras Futuras Sugeridas
+## Charlas y call for speakers
 
-1. **Notificaciones por email**:
-
-   - Confirmación de inscripción
-   - Recordatorio antes del evento
-   - Notificación de cancelación
-
-2. **Lista de espera**:
-
-   - Si el cupo está completo, permitir inscribirse en lista de espera
-   - Notificar cuando se libere un cupo
-
-3. **Exportación de datos**:
-
-   - Exportar lista de inscripciones a CSV/Excel
-   - Filtros y búsqueda en la lista de inscripciones
-
-4. **Estadísticas**:
-
-   - Dashboard con métricas de eventos
-   - Gráficos de asistencia
-
-5. **QR Codes**:
-
-   - Generar QR para check-in en el evento
-   - Validación de asistencia
-
-6. **Comentarios y valoraciones**:
-   - Permitir a usuarios dejar comentarios sobre eventos pasados
-   - Sistema de valoraciones
+- Con `callForSpeakersEnabled`, cualquiera con sesión propone una charla
+  (`createTalkProposal`, `talkProposalSchema`) con uno o más oradores.
+- Quien gestiona el evento la acepta o rechaza (`updateTalkProposalStatus`), la borra o la convierte
+  en `Talk` (`createTalkFromProposal`, que avisa a los oradores).
+- Las charlas que se dieron se cargan en `/eventos/[id]/charlas` (`createTalk`, `updateTalk`,
+  `deleteTalk`) con slides, video y retrato. Un admin también puede crear una charla desde una foto
+  de la galería (`createTalkFromPhoto`).
 
 ---
 
-## Notas de Desarrollo
+## Eventos pasados: el recuerdo
 
-- Todos los formularios usan **React Hook Form** con validación **Zod**
-- Los toasts se manejan con **Sonner** usando `toast.promise`
-- Las validaciones de permisos se hacen en server components/actions
-- Los componentes de UI usan **shadcn/ui**
-- El estilo sigue el sistema de diseño de la plataforma (pcnPurple/pcnGreen)
+Cuando `hasEventEnded` es true, `/eventos/[id]` muestra `PastEventMemory`
+(`src/components/events/memory/`): portada, número de catálogo en el museo (Nº 001 es el primer
+evento), cuánta gente se anotó, mosaico de fotos, charlas, flyer con créditos, sponsors y
+conversaciones de WhatsApp de ese día.
+
+La portada la elige quien gestiona el evento entre sus fotos (`setEventCoverPhoto`; con `null`
+vuelve a alternar fotos horizontales al azar) y la encuadra con `setEventCoverFraming` (zoom hasta
+250 %). Elegir otra foto resetea el encuadre.
 
 ---
 
-**Última actualización**: Diciembre 2024
+## Caché y tiempo real
+
+- Las lecturas públicas pasan por `cached()`: `fetchEvents` (lista con conteos), `fetchEvent`
+  (detalle), `listEventIndex` (nombre y fechas de todos, para la sidebar y búsquedas por id) y
+  `getEventCounts` (inscriptos, en espera y número de catálogo). Cualquier escritura de Prisma en sus
+  tablas las invalida sola (ver `docs/cache-de-datos.md`).
+- Qué eventos son "próximos" depende de la hora, así que `fetchUpcomingEvents` y `fetchHomeEvents`
+  filtran en cada request sobre la lista cacheada, no dentro de la caché.
+- Las escrituras de `EventRegistration`, `EventWaitlistEntry` y las ediciones de `Event` publican
+  el tópico `event:<id>` (`src/lib/realtime-signals.ts`). La página de un evento con inscripción
+  interna escucha ese tópico con `RealtimeRefresh` y se refresca cuando cambia el cupo.
+- Las server actions todavía llaman `revalidatePath` para las páginas del evento.
+
+---
+
+## Mapa de archivos
+
+| Qué                        | Dónde                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| Server actions de eventos  | `src/actions/events/`                                                          |
+| Charlas y propuestas       | `src/actions/talks/`, `src/actions/talk-proposals/`                            |
+| Permisos                   | `src/lib/event-permissions.ts`, `src/lib/event-access.ts`                      |
+| Lista de espera y locks    | `src/lib/event-waitlist.ts`                                                    |
+| Fin del evento             | `src/lib/event-status.ts`                                                      |
+| Índice y conteos cacheados | `src/lib/event-index.ts`                                                       |
+| URLs cortas                | `src/lib/event-shortcuts.ts`, `src/app/[shortcut]/page.tsx`                    |
+| Calendarios                | `src/lib/ics.ts`, `src/lib/google-calendar.ts`                                 |
+| Agente de flyers           | `src/lib/event-flyer-agent.ts`, `src/actions/events/fill-event-from-flyers.ts` |
+| Schemas                    | `src/schemas/event-schema.ts`, `talk-proposal-schema.ts`, `talk-schema.ts`     |
+| Componentes                | `src/components/events/` (recuerdo en `memory/`)                               |
+| Páginas                    | `src/app/(platform)/eventos/`                                                  |
+| Tests de integración       | `src/actions/events/events.db.test.ts`, `registration.db.test.ts`              |
