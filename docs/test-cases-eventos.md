@@ -1,1646 +1,539 @@
-# Casos de Prueba - Sistema de Eventos
+# Casos de prueba: eventos
 
-Documento completo de casos de prueba para realizar regresión del sistema de eventos.
+Casos manuales para la regresión del sistema de eventos. Cómo funciona cada parte está en
+[`sistema-eventos.md`](./sistema-eventos.md). Los casos más importantes también figuran en
+`/desarrollo/calidad` (`src/app/(platform)/desarrollo/calidad/manual-cases/auth-events.ts`); si
+cambiás uno, cambiá el otro.
 
-## Tabla de Contenidos
+Antes de empezar:
 
-1. [Gestión de Eventos (Admin)](#gestión-de-eventos-admin)
-2. [Inscripción a Eventos](#inscripción-a-eventos)
-3. [Cancelación de Inscripciones](#cancelación-de-inscripciones)
-4. [Eliminación de Inscripciones (Admin)](#eliminación-de-inscripciones-admin)
-5. [Sistema de Cupos](#sistema-de-cupos)
-6. [Validaciones y Permisos](#validaciones-y-permisos)
-7. [Casos Edge y Condiciones de Carrera](#casos-edge-y-condiciones-de-carrera)
-8. [Visualización y UI](#visualización-y-ui)
+- Usuarios de prueba: un **admin**, un **ambassador**, un **usuario común** y un segundo usuario
+  común para hacer de **organizador** (sumado desde `/eventos/[id]/organizadores`).
+- MailHog corriendo (`docker-compose up -d`) para ver los emails.
+- En producción los mensajes de error de las server actions no llegan al navegador: los textos de
+  error de abajo se ven en dev. En producción sale el mensaje genérico de la UI.
 
----
-
-## Gestión de Eventos (Admin)
-
-### TC-EV-001: Crear evento exitosamente
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios:
-   - Nombre: "Dev Meetup Enero 2025"
-   - Descripción: "Meetup mensual de desarrolladores"
-   - Fecha: Fecha futura
-   - Ciudad: "Buenos Aires"
-   - Dirección: "Av. Corrientes 1234"
-   - Nombre del lugar: "Coworking Space"
-   - URL del flyer: "https://ejemplo.com/flyer.jpg"
-2. Dejar campos opcionales vacíos (fecha fin, coordenadas, cupo, sponsors)
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Toast de éxito: "Evento creado exitosamente"
-- ✅ Redirección a `/eventos/[id]` del evento creado
-- ✅ El evento se muestra correctamente con todos los datos ingresados
-- ✅ El evento aparece en la lista de eventos (`/eventos`)
-
----
-
-### TC-EV-002: Crear evento con todos los campos opcionales
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios
-2. Completar campos opcionales:
-   - Fecha de fin: Fecha posterior a la fecha de inicio
-   - Latitud: "-34.6037"
-   - Longitud: "-58.3816"
-   - Cupo máximo: "50"
-   - Agregar 2 sponsors:
-     - Sponsor 1: Nombre "Tech Corp", Website "https://techcorp.com"
-     - Sponsor 2: Nombre "Dev Academy", Website vacío
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Evento creado exitosamente
-- ✅ Se muestra la fecha de fin en el detalle
-- ✅ Se muestra el mapa con las coordenadas
-- ✅ Se muestra información de cupo: "50 cupos disponibles"
-- ✅ Se muestran los 2 sponsors en la columna lateral
-- ✅ El sponsor con website es clickeable
-
----
-
-### TC-EV-003: Validación de campos obligatorios
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Intentar guardar sin completar campos obligatorios (uno a la vez):
-   - Sin nombre
-   - Sin descripción
-   - Sin fecha
-   - Sin ciudad
-   - Sin dirección
-   - Sin nombre del lugar
-   - Sin URL del flyer
-2. Verificar mensajes de error
-
-**Resultado Esperado:**
-
-- ✅ Se muestran mensajes de error específicos para cada campo
-- ✅ El formulario no se envía
-- ✅ Los mensajes de error son claros y descriptivos
-
----
-
-### TC-EV-004: Validación de formato de URL del flyer
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios
-2. Ingresar URL inválida en "URL del flyer": "no-es-una-url"
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "Debe ser una URL válida"
-- ✅ El formulario no se envía
-
----
-
-### TC-EV-005: Validación de fecha de fin posterior a fecha de inicio
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios
-2. Fecha: "2025-02-01T18:00"
-3. Fecha de fin: "2025-01-01T20:00" (anterior a fecha de inicio)
-4. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error indicando que la fecha de fin debe ser posterior a la fecha de inicio
-- ✅ El formulario no se envía
-
----
-
-### TC-EV-006: Validación de cupo mayor a 0
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios
-2. Cupo máximo: "0" o "-5"
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "El cupo debe ser un número mayor a 0"
-- ✅ El formulario no se envía
-
----
-
-### TC-EV-007: Agregar múltiples sponsors
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios
-2. Hacer clic en "Agregar sponsor" 3 veces
-3. Completar los sponsors:
-   - Sponsor 1: Nombre "A", Website "https://a.com"
-   - Sponsor 2: Nombre "B", Website vacío
-   - Sponsor 3: Nombre "C", Website "https://c.com"
-4. Eliminar el sponsor 2
-5. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Se pueden agregar múltiples sponsors
-- ✅ Se pueden eliminar sponsors antes de guardar
-- ✅ Solo se guardan los sponsors con nombre (el 1 y 3)
-- ✅ Los sponsors se muestran correctamente en el detalle
-
----
-
-### TC-EV-008: Validación de URL de sponsor
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Navegar a `/eventos/nuevo`
-
-**Pasos:**
-
-1. Completar todos los campos obligatorios
-2. Agregar sponsor con URL inválida: "not-a-url"
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error para el campo website del sponsor
-- ✅ El formulario no se envía
-
----
-
-### TC-EV-009: Editar evento exitosamente
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento existente creado
-- Navegar a `/eventos/[id]/editar`
-
-**Pasos:**
-
-1. Verificar que los campos están pre-llenados con los datos actuales
-2. Modificar algunos campos:
-   - Cambiar nombre
-   - Agregar fecha de fin
-   - Modificar cupo
-   - Agregar un sponsor
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ Los campos están pre-llenados correctamente
-- ✅ Toast de éxito: "Evento actualizado exitosamente"
-- ✅ Redirección a `/eventos/[id]`
-- ✅ Los cambios se reflejan en la página de detalle
-
----
-
-### TC-EV-010: Eliminar evento (soft delete)
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento existente creado
-- Navegar a `/eventos/[id]/editar`
-
-**Pasos:**
-
-1. Hacer clic en "Eliminar evento"
-2. Confirmar en el diálogo de confirmación
-
-**Resultado Esperado:**
-
-- ✅ Se muestra diálogo de confirmación
-- ✅ Toast de éxito: "Evento eliminado exitosamente"
-- ✅ Redirección a `/eventos`
-- ✅ El evento NO aparece en la lista de eventos
-- ✅ El evento NO es accesible desde `/eventos/[id]` (redirige o 404)
-
----
-
-### TC-EV-011: Acceso no autorizado a crear evento
-
-**Precondiciones:**
-
-- Usuario autenticado como usuario regular (no admin)
-- O usuario no autenticado
-
-**Pasos:**
-
-1. Intentar navegar a `/eventos/nuevo` directamente
-
-**Resultado Esperado:**
-
-- ✅ Redirección automática (no se muestra el formulario)
-- ✅ No se puede crear el evento
-
----
-
-### TC-EV-012: Acceso no autorizado a editar evento
-
-**Precondiciones:**
-
-- Usuario autenticado como usuario regular (no admin)
-- Evento existente
-
-**Pasos:**
-
-1. Intentar navegar a `/eventos/[id]/editar` directamente
-
-**Resultado Esperado:**
-
-- ✅ Redirección automática o error 403
-- ✅ No se puede editar el evento
-
----
-
-## Inscripción a Eventos
-
-### TC-INS-001: Inscribirse a evento exitosamente (usuario no logueado)
-
-**Precondiciones:**
-
-- Usuario NO autenticado
-- Evento existente con cupo disponible
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Completar formulario:
-   - Nombre: "Juan"
-   - Apellido: "Pérez"
-   - Email: "juan@ejemplo.com"
-   - Tipo: "Profesional"
-   - Puesto de trabajo: "Desarrollador"
-   - Lugar de trabajo: "Tech Corp"
-2. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Toast de éxito: "¡Te has inscrito exitosamente al evento! 🎉"
-- ✅ Redirección a `/eventos/[id]`
-- ✅ En la página de detalle se muestra "Ya estás registrado"
-- ✅ El cupo disponible disminuye en 1
-
----
-
-### TC-INS-002: Inscribirse a evento exitosamente (usuario logueado)
-
-**Precondiciones:**
-
-- Usuario autenticado con datos completos en perfil
-- Evento existente con cupo disponible
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Verificar que los campos están pre-llenados con datos del usuario
-2. Seleccionar tipo: "Estudiante"
-3. Completar campos de estudiante:
-   - Campo de estudio: "Ingeniería en Sistemas"
-   - Lugar de estudio: "Universidad X"
-4. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Campos pre-llenados correctamente
-- ✅ Inscripción exitosa
-- ✅ Redirección a página de detalle
-- ✅ Se muestra "Ya estás registrado"
-
----
-
-### TC-INS-003: Validación de campos obligatorios en inscripción
-
-**Precondiciones:**
-
-- Evento existente
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Intentar enviar formulario sin completar campos (uno a la vez):
-   - Sin nombre
-   - Sin apellido
-   - Sin email
-   - Sin tipo
-   - Sin campos condicionales (según tipo seleccionado)
-2. Verificar mensajes de error
-
-**Resultado Esperado:**
-
-- ✅ Se muestran mensajes de error específicos para cada campo
-- ✅ El formulario no se envía
-- ✅ Los mensajes son claros
-
----
-
-### TC-INS-004: Validación de email inválido
-
-**Precondiciones:**
-
-- Evento existente
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Completar formulario
-2. Email: "email-invalido"
-3. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "Debe ser un email válido"
-- ✅ El formulario no se envía
-
----
-
-### TC-INS-005: Validación de campos condicionales - Profesional
-
-**Precondiciones:**
-
-- Evento existente
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Completar nombre, apellido, email
-2. Seleccionar tipo: "Profesional"
-3. Dejar "Puesto de trabajo" vacío
-4. Completar "Lugar de trabajo"
-5. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "El puesto de trabajo es requerido para profesionales"
-- ✅ El formulario no se envía
-
-**Pasos (variante):**
-
-1. Completar "Puesto de trabajo"
-2. Dejar "Lugar de trabajo" vacío
-3. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "El lugar de trabajo es requerido para profesionales"
-- ✅ El formulario no se envía
-
----
-
-### TC-INS-006: Validación de campos condicionales - Estudiante
-
-**Precondiciones:**
-
-- Evento existente
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Completar nombre, apellido, email
-2. Seleccionar tipo: "Estudiante"
-3. Dejar "Campo de estudio" vacío
-4. Completar "Lugar de estudio"
-5. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "El campo de estudio es requerido para estudiantes"
-- ✅ El formulario no se envía
-
-**Pasos (variante):**
-
-1. Completar "Campo de estudio"
-2. Dejar "Lugar de estudio" vacío
-3. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje de error: "El lugar de estudio es requerido para estudiantes"
-- ✅ El formulario no se envía
-
----
-
-### TC-INS-007: Prevenir inscripción duplicada (mismo email)
-
-**Precondiciones:**
-
-- Evento existente
-- Inscripción existente con email "test@ejemplo.com"
-
-**Pasos:**
-
-1. Navegar a `/eventos/[id]/inscripcion`
-2. Completar formulario con email "test@ejemplo.com"
-3. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Toast de error: "Ya estás registrado en este evento con este correo electrónico"
-- ✅ No se crea una nueva inscripción
-- ✅ El cupo no cambia
-
----
-
-### TC-INS-008: Prevenir inscripción duplicada (usuario logueado)
-
-**Precondiciones:**
-
-- Usuario autenticado
-- Usuario ya inscrito en el evento
-
-**Pasos:**
-
-1. Navegar a `/eventos/[id]/inscripcion`
-
-**Resultado Esperado:**
-
-- ✅ Se muestra mensaje: "Ya estás inscrito"
-- ✅ NO se muestra el formulario
-- ✅ Se muestra botón "Volver al evento"
-
----
-
-### TC-INS-009: Re-inscripción después de cancelar
-
-**Precondiciones:**
-
-- Usuario con inscripción cancelada en el evento
-- Evento con cupo disponible
-
-**Pasos:**
-
-1. Navegar a `/eventos/[id]/inscripcion`
-2. Completar formulario con el mismo email de la inscripción cancelada
-3. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Inscripción exitosa
-- ✅ Se reactiva la inscripción anterior (no se crea una nueva)
-- ✅ El cupo se actualiza correctamente
-
----
-
-### TC-INS-010: Inscripción cuando el evento ya pasó
-
-**Precondiciones:**
-
-- Evento con fecha en el pasado
-- Navegar a `/eventos/[id]`
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra botón "Inscribirme al evento"
-- ✅ No se puede acceder a `/eventos/[id]/inscripcion` (o muestra mensaje de que el evento ya pasó)
-
----
-
-## Cancelación de Inscripciones
-
-### TC-CAN-001: Cancelar inscripción (usuario logueado)
-
-**Precondiciones:**
-
-- Usuario autenticado
-- Usuario inscrito en el evento
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Verificar que se muestra "Ya estás registrado"
-2. Hacer clic en "Cancelar inscripción"
-3. Confirmar la acción
-
-**Resultado Esperado:**
-
-- ✅ Toast de éxito: "Inscripción cancelada exitosamente"
-- ✅ Se actualiza la página
-- ✅ Se muestra botón "Inscribirme al evento" (ya no está registrado)
-- ✅ El cupo disponible aumenta en 1
-- ✅ La inscripción sigue existiendo en BD pero con `cancelledAt` establecido
-
----
-
-### TC-CAN-002: Cancelar inscripción (usuario no logueado)
+## Índice
 
-**Precondiciones:**
+1. [Crear, editar y eliminar](#crear-editar-y-eliminar)
+2. [Permisos](#permisos)
+3. [Inscripción](#inscripción)
+4. [Lista de espera](#lista-de-espera)
+5. [Gestión de inscriptos](#gestión-de-inscriptos)
+6. [Avisos](#avisos)
+7. [Charlas y call for speakers](#charlas-y-call-for-speakers)
+8. [Eventos pasados](#eventos-pasados)
+9. [Links, calendario y URLs cortas](#links-calendario-y-urls-cortas)
+10. [Concurrencia y casos borde](#concurrencia-y-casos-borde)
 
-- Usuario NO autenticado
-- Inscripción existente con email "test@ejemplo.com"
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Si está registrado, hacer clic en "Cancelar inscripción"
-2. Se abre diálogo
-3. Ingresar email: "test@ejemplo.com"
-4. Hacer clic en "Cancelar inscripción"
-
-**Resultado Esperado:**
-
-- ✅ Diálogo se muestra correctamente
-- ✅ Toast de éxito después de cancelar
-- ✅ Se actualiza la página
-- ✅ El cupo disponible aumenta en 1
-
----
-
-### TC-CAN-003: Cancelar inscripción con email incorrecto
-
-**Precondiciones:**
-
-- Usuario NO autenticado
-- Inscripción existente con email "test@ejemplo.com"
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Hacer clic en "Cancelar inscripción"
-2. Ingresar email incorrecto: "otro@ejemplo.com"
-3. Hacer clic en "Cancelar inscripción"
-
-**Resultado Esperado:**
-
-- ✅ Toast de error: "No se encontró una inscripción con ese correo electrónico para este evento"
-- ✅ La inscripción NO se cancela
-- ✅ El cupo NO cambia
-
----
-
-### TC-CAN-004: Intentar cancelar inscripción ya cancelada
-
-**Precondiciones:**
-
-- Usuario con inscripción cancelada
-- Navegar a `/eventos/[id]`
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra botón "Cancelar inscripción" (porque no está registrado activamente)
-- ✅ Se muestra botón "Inscribirme al evento"
-
----
-
-### TC-CAN-005: Validación de email vacío en cancelación
-
-**Precondiciones:**
-
-- Usuario NO autenticado
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Hacer clic en "Cancelar inscripción"
-2. Dejar email vacío
-3. Hacer clic en "Cancelar inscripción"
-
-**Resultado Esperado:**
-
-- ✅ Toast de error: "Por favor ingresa tu correo electrónico"
-- ✅ El botón está deshabilitado si el email está vacío
-
----
-
-## Eliminación de Inscripciones (Admin)
-
-### TC-DEL-001: Eliminar inscripción (admin)
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento con inscripciones
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Verificar lista de inscripciones (solo visible para admin)
-2. Hacer clic en botón de eliminar (ícono de basura) de una inscripción activa
-3. Confirmar en el diálogo
-
-**Resultado Esperado:**
-
-- ✅ Se muestra diálogo de confirmación con nombre del usuario
-- ✅ Toast de éxito: "Inscripción eliminada exitosamente"
-- ✅ La inscripción desaparece de la lista
-- ✅ El cupo disponible aumenta en 1
-- ✅ La inscripción se elimina físicamente de la BD
-
----
-
-### TC-DEL-002: Cancelar eliminación de inscripción
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento con inscripciones
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Hacer clic en botón de eliminar
-2. Hacer clic en "Cancelar" en el diálogo
-
-**Resultado Esperado:**
-
-- ✅ El diálogo se cierra
-- ✅ La inscripción NO se elimina
-- ✅ El cupo NO cambia
-
----
-
-### TC-DEL-003: No mostrar botón eliminar en inscripciones canceladas
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento con inscripciones (algunas canceladas)
-- Navegar a `/eventos/[id]`
-
-**Resultado Esperado:**
-
-- ✅ Las inscripciones canceladas se muestran con badge "Cancelada"
-- ✅ Las inscripciones canceladas NO tienen botón de eliminar
-- ✅ Solo las inscripciones activas tienen botón de eliminar
-
----
-
-### TC-DEL-004: Acceso no autorizado a eliminar inscripción
-
-**Precondiciones:**
-
-- Usuario autenticado como usuario regular (no admin)
-- Evento con inscripciones
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra la lista de inscripciones
-- ✅ No se puede eliminar inscripciones
-
----
-
-## Sistema de Cupos
-
-### TC-CUP-001: Inscribirse cuando hay cupo disponible
-
-**Precondiciones:**
-
-- Evento con cupo: 10
-- Inscripciones actuales: 5
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Verificar que se muestra: "5 de 10 cupos disponibles"
-2. Completar formulario de inscripción
-3. Hacer clic en "Inscribirme"
-
-**Resultado Esperado:**
-
-- ✅ Inscripción exitosa
-- ✅ Se actualiza a "6 de 10 cupos disponibles"
-- ✅ El cupo disponible disminuye correctamente
-
----
-
-### TC-CUP-002: Intentar inscribirse cuando el cupo está completo
-
-**Precondiciones:**
-
-- Evento con cupo: 5
-- Inscripciones actuales: 5 (cupo completo)
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Verificar que se muestra mensaje: "Cupo completo"
-2. Intentar acceder al formulario
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra el formulario
-- ✅ Se muestra mensaje: "El cupo del evento está completo. No se pueden aceptar más inscripciones."
-- ✅ Se muestra información: "5 de 5 cupos ocupados"
-- ✅ Botón "Volver al evento"
-
----
-
-### TC-CUP-003: Validación de cupo al submitear (condición de carrera)
-
-**Precondiciones:**
-
-- Evento con cupo: 5
-- Inscripciones actuales: 4
-- Dos usuarios intentan inscribirse simultáneamente
-
-**Pasos:**
-
-1. Usuario A carga la página (ve 1 cupo disponible)
-2. Usuario B carga la página (ve 1 cupo disponible)
-3. Usuario A completa y envía formulario
-4. Usuario B completa y envía formulario (después de que A se inscribió)
-
-**Resultado Esperado:**
-
-- ✅ Usuario A: Inscripción exitosa
-- ✅ Usuario B: Toast de error: "El cupo del evento está completo. No se pueden aceptar más inscripciones."
-- ✅ Solo 5 inscripciones activas en total
-- ✅ El cupo se valida nuevamente antes de crear la inscripción
-
----
-
-### TC-CUP-004: Cupo ilimitado
-
-**Precondiciones:**
-
-- Evento sin cupo definido (campo vacío)
-- Navegar a `/eventos/[id]`
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra información de cupo
-- ✅ Se puede inscribir cualquier cantidad de personas
-- ✅ No hay validación de cupo
-
----
-
-### TC-CUP-005: Liberar cupo al cancelar inscripción
-
-**Precondiciones:**
-
-- Evento con cupo: 10
-- Inscripciones actuales: 10 (cupo completo)
-- Usuario inscrito
-
-**Pasos:**
-
-1. Usuario cancela su inscripción
-2. Verificar cupo disponible
-
-**Resultado Esperado:**
-
-- ✅ Se actualiza a "9 de 10 cupos disponibles"
-- ✅ Otros usuarios pueden inscribirse nuevamente
-- ✅ Las inscripciones canceladas NO cuentan para el cupo
-
----
-
-### TC-CUP-006: Liberar cupo al eliminar inscripción (admin)
-
-**Precondiciones:**
-
-- Evento con cupo: 10
-- Inscripciones actuales: 10 (cupo completo)
-- Admin en página de detalle
-
-**Pasos:**
-
-1. Admin elimina una inscripción
-2. Verificar cupo disponible
-
-**Resultado Esperado:**
-
-- ✅ Se actualiza a "9 de 10 cupos disponibles"
-- ✅ Otros usuarios pueden inscribirse nuevamente
-
----
-
-### TC-CUP-007: Mostrar información de cupo en página de detalle
-
-**Precondiciones:**
-
-- Evento con cupo: 20
-- Inscripciones actuales: 12
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Verificar información de cupo en la columna lateral
-
-**Resultado Esperado:**
-
-- ✅ Se muestra: "Quedan 8 lugares disponibles."
-- ✅ El botón "Inscribirme al evento" está visible y habilitado
-
----
-
-### TC-CUP-008: Botón de inscripción no aparece cuando cupo está completo
-
-**Precondiciones:**
-
-- Evento con cupo: 10
-- Inscripciones actuales: 10 (cupo completo)
-- Usuario NO registrado
-- Navegar a `/eventos/[id]`
-
-**Pasos:**
-
-1. Verificar la columna lateral donde debería estar el botón de inscripción
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra el botón "Inscribirme al evento"
-- ✅ Se muestra mensaje: "Cupo completo"
-- ✅ Se muestra: "Ya no quedan lugares disponibles."
-
----
-
-### TC-CUP-009: Acceso directo a página de inscripción con cupo completo
-
-**Precondiciones:**
-
-- Evento con cupo: 5
-- Inscripciones actuales: 5 (cupo completo)
-- Usuario NO registrado en el evento
-
-**Pasos:**
-
-1. Navegar directamente a `/eventos/[id]/inscripcion` (sin pasar por la página de detalle)
-
-**Resultado Esperado:**
-
-- ✅ NO se muestra el formulario de inscripción
-- ✅ Se muestra card con:
-  - Icono de alerta (AlertCircle)
-  - Título: "Cupo completo"
-  - Mensaje: "Ya no quedan lugares disponibles."
-  - Botón: "Volver al evento"
-- ✅ El botón redirige a `/eventos/[id]`
-
----
-
-### TC-CUP-010: Texto de cupo disponible en formulario de inscripción
-
-**Precondiciones:**
-
-- Evento con cupo: 15
-- Inscripciones actuales: 8
-- Navegar a `/eventos/[id]/inscripcion`
-
-**Pasos:**
-
-1. Verificar información de cupo arriba del formulario
-
-**Resultado Esperado:**
-
-- ✅ Se muestra: "Cupo disponible:"
-- ✅ Se muestra: "Quedan 7 lugares disponibles."
-- ✅ Si el cupo está completo, se muestra: "Ya no quedan lugares disponibles."
-
----
-
-### TC-CUP-011: Editar evento y agregar cupo (validación de tipo)
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento existente sin cupo definido
-- Navegar a `/eventos/[id]/editar`
-
-**Pasos:**
-
-1. Verificar que el campo "Cupo máximo" está vacío
-2. Ingresar un número: "50"
-3. Hacer clic en "Guardar"
-
-**Resultado Esperado:**
-
-- ✅ El campo acepta el valor correctamente
-- ✅ No se muestra error de tipo (string vs number)
-- ✅ El evento se actualiza exitosamente
-- ✅ En la página de detalle se muestra: "Quedan 50 lugares disponibles."
-
----
-
-## Validaciones y Permisos
-
-### TC-PERM-001: Acceso a crear evento (solo admin)
-
-**Precondiciones:**
-
-- Usuario regular (no admin)
-
-**Pasos:**
-
-1. Intentar navegar a `/eventos/nuevo`
-
-**Resultado Esperado:**
-
-- ✅ Redirección automática
-- ✅ No se puede acceder al formulario
-
 ---
-
-### TC-PERM-002: Acceso a editar evento (solo admin)
 
-**Precondiciones:**
+## Crear, editar y eliminar
 
-- Usuario regular (no admin)
-- Evento existente
+### TC-EV-001: Crear un evento presencial
 
-**Pasos:**
+**Pre:** admin o ambassador logueado.
 
-1. Intentar navegar a `/eventos/[id]/editar`
+1. En `/eventos` tocar `crearEvento();`.
+2. Completar nombre, descripción, inicio, ciudad, lugar, dirección y cupo.
+3. Guardar.
 
-**Resultado Esperado:**
+**Esperado:** muestra "guardando...", redirige a `/eventos/[id]`, el evento sale en `/eventos` y
+quien lo creó figura en "organizadores".
 
-- ✅ Redirección automática o error 403
-- ✅ No se puede editar el evento
+### TC-EV-002: Crear un evento online
 
----
-
-### TC-PERM-003: Ver lista de inscripciones (solo admin)
+1. Marcar el evento como online y cargar el link del stream.
+2. Dejar ciudad, lugar y dirección vacíos y guardar.
 
-**Precondiciones:**
+**Esperado:** se guarda sin pedir ubicación. La sección "info" muestra el stream y no hay mapa.
 
-- Usuario regular (no admin)
-- Evento con inscripciones
-- Navegar a `/eventos/[id]`
+### TC-EV-003: Validaciones del formulario
 
-**Resultado Esperado:**
+1. Nombre de 2 caracteres y descripción de 9.
+2. Fin anterior al inicio.
+3. Evento presencial sin dirección.
+4. Cupo `0`.
+5. URL corta `Mi Evento`.
+6. Link de Google Maps que no es de Google Maps (`https://example.com`).
+7. Sponsor con web inválida.
 
-- ✅ NO se muestra la sección de inscripciones
-- ✅ Solo admin puede ver la lista
+**Esperado:** no se envía nada. Se ven, entre otros, "La fecha de finalización debe ser posterior a
+la fecha de inicio", "La dirección debe tener al menos 5 caracteres", "El cupo debe ser un número
+mayor a 0", "Solo minúsculas, números y guiones (sin espacios)", "Pegá un link de Google Maps
+(google.com/maps o maps.app.goo.gl)" y "Debe ser una URL válida".
 
----
+### TC-EV-004: Flyers, diseñadores y sponsors
 
-### TC-PERM-004: Botón editar evento (solo admin)
+1. Subir dos flyers y cargar como diseñadores a un usuario con cuenta y a alguien solo por nombre.
+2. Agregar un sponsor que sea partner del sitio (con su logo) y otro que no.
+3. Guardar y abrir el evento.
 
-**Precondiciones:**
+**Esperado:** carrusel con los dos flyers y créditos con los dos diseñadores (el que tiene cuenta
+enlaza a su perfil). Los sponsors muestran logo o nombre y web.
 
-- Usuario regular (no admin)
-- Evento existente
-- Navegar a `/eventos/[id]`
+### TC-EV-005: Completar desde los flyers (admin)
 
-**Resultado Esperado:**
+**Pre:** admin, `AI_GATEWAY_API_KEY` configurada.
 
-- ✅ NO se muestra botón "Editar evento"
-- ✅ Solo admin ve el botón
+1. En `/eventos/nuevo` subir el flyer de un evento real.
+2. Tocar `completarConFlyers();`.
 
----
+**Esperado:** el botón dice "leyendo flyers…" y después un toast "Completé N campos con los flyers"
+con las notas del agente. Si el lugar ya se usó, trae la dirección y el link de Maps cargados antes;
+un sponsor partner trae su logo. No se guarda nada hasta tocar guardar. Un ambassador no ve el
+botón.
 
-### TC-PERM-005: Acceso a página de inscripciones (solo admin)
+### TC-EV-006: Editar un evento
 
-**Precondiciones:**
+1. Como organizador, abrir `/eventos/[id]/editar`, cambiar la descripción y un sponsor, y guardar.
 
-- Usuario regular (no admin)
-- Evento existente con inscripciones
+**Esperado:** redirige al evento con los cambios; el sponsor viejo ya no aparece.
 
-**Pasos:**
+### TC-EV-007: Eliminar un evento
 
-1. Intentar navegar a `/eventos/[id]/inscripciones` directamente
+**Pre:** admin, o el ambassador que lo creó.
 
-**Resultado Esperado:**
+1. En `/eventos/[id]/editar` eliminar y confirmar.
 
-- ✅ Redirección automática a `/eventos/[id]`
-- ✅ No se puede acceder a la página de inscripciones
+**Esperado:** diálogo "¿Estás seguro de eliminar este evento?", toasts "Eliminando evento..." y
+"Evento eliminado correctamente", redirige a `/eventos` y el evento ya no aparece. Su URL muestra
+"No encontramos este evento".
 
 ---
 
-### TC-PERM-006: Card de inscripciones en página de detalle (solo admin)
+## Permisos
 
-**Precondiciones:**
+### TC-PERM-001: Solo admins y ambassadors crean eventos
 
-- Usuario regular (no admin)
-- Evento con inscripciones
-- Navegar a `/eventos/[id]`
+**Pre:** usuario común logueado.
 
-**Resultado Esperado:**
+1. Abrir `/eventos`.
+2. Ir directo a `/eventos/nuevo`.
 
-- ✅ NO se muestra el card de inscripciones
-- ✅ Solo admin ve el card con resumen y botón "Ver todas"
+**Esperado:** no ve `crearEvento();` sino el link de WhatsApp "quiero organizar algo";
+`/eventos/nuevo` redirige a `/eventos`.
 
----
+### TC-PERM-002: Rutas de gestión protegidas
 
-## Página de Inscripciones (Admin)
+**Pre:** usuario común logueado.
 
-### TC-INS-ADM-001: Acceder a página de inscripciones
+1. Abrir `/eventos/[id]/editar`, `/inscripciones`, `/charlas`, `/propuestas-de-charlas` y
+   `/organizadores`.
 
-**Precondiciones:**
+**Esperado:** ninguna muestra datos; redirigen al evento. En la página del evento no aparecen
+"editar", "inscripciones" ni "charlas del evento".
 
-- Usuario autenticado como administrador
-- Evento existente con inscripciones
-- Navegar a `/eventos/[id]`
+### TC-PERM-003: Un organizador edita pero no elimina
 
-**Pasos:**
+**Pre:** usuario sumado como organizador de un evento que no creó.
 
-1. Verificar que se muestra el card de inscripciones
-2. Hacer clic en "Ver todas"
+1. Abrir `/eventos/[id]/editar`.
 
-**Resultado Esperado:**
+**Esperado:** puede guardar cambios, pero no ve el botón de eliminar. En
+`/eventos/[id]/organizadores` ve la lista pero no puede sumar ni quitar a nadie. Llamar la acción igual devuelve "Solo puedes eliminar los eventos que creaste".
 
-- ✅ Se muestra card con resumen: "X inscripciones activas" y "Y total (incluyendo canceladas)"
-- ✅ Botón "Ver todas" visible
-- ✅ Redirección a `/eventos/[id]/inscripciones`
-- ✅ Se muestra la tabla con todas las inscripciones
-
----
+### TC-PERM-004: Un ambassador solo gestiona lo suyo
 
-### TC-INS-ADM-002: Visualizar tabla de inscripciones
+**Pre:** ambassador; un evento creado por él y otro creado por otra persona.
 
-**Precondiciones:**
+1. Abrir `/eventos/[id]/editar` de cada uno.
 
-- Usuario autenticado como administrador
-- Evento con múltiples inscripciones (activas y canceladas)
-- Navegar a `/eventos/[id]/inscripciones`
+**Esperado:** edita y elimina el suyo; del otro no ve "editar" y la ruta lo saca.
 
-**Pasos:**
+### TC-PERM-005: Sumar y quitar organizadores
 
-1. Verificar estructura de la tabla
-2. Verificar columnas y datos mostrados
+**Pre:** admin, o el ambassador que creó el evento.
 
-**Resultado Esperado:**
+1. Ir a `/eventos/[id]/organizadores`, buscar a una persona y sumarla.
+2. Quitarla con "Quitar a {nombre}".
 
-- ✅ Tabla con columnas: Nombre, Email, Tipo, Información, Estado, Fecha de inscripción, Acciones
-- ✅ Todas las inscripciones se muestran ordenadas por fecha descendente (más recientes primero)
-- ✅ Inscripciones canceladas se muestran con opacidad reducida
-- ✅ Header muestra resumen: "X total - Y activas, Z canceladas"
+**Esperado:** toasts "{nombre} ahora organiza el evento" y "{nombre} ya no organiza el evento". Al
+sumarla, esa persona puede entrar a `/eventos/[id]/editar`.
 
 ---
-
-### TC-INS-ADM-003: Ver información de inscripciones en tabla
-
-**Precondiciones:**
-
-- Usuario autenticado como administrador
-- Evento con inscripciones de diferentes tipos
-- Navegar a `/eventos/[id]/inscripciones`
-
-**Pasos:**
 
-1. Verificar información mostrada para cada tipo de inscripción
+## Inscripción
 
-**Resultado Esperado:**
+### TC-INS-001: Inscribirse a un evento con cupo
 
-- ✅ Inscripciones de tipo "Profesional" muestran:
-  - Badge "Profesional"
-  - Información: "Trabaja: [puesto]" y "En: [lugar]"
-- ✅ Inscripciones de tipo "Estudiante" muestran:
-  - Badge "Estudiante"
-  - Información: "Estudia: [campo]" y "En: [lugar]"
-- ✅ Email y nombre completo visibles
-- ✅ Fecha de inscripción formateada correctamente
+**Pre:** usuario logueado; evento futuro con cupo libre e inscripción interna.
 
----
+1. Abrir `/eventos/[id]` y tocar `inscribirme();`.
+2. Cerrar el diálogo con `entendido();`.
 
-### TC-INS-ADM-004: Estados de inscripciones en tabla
+**Esperado:** diálogo "¡Te has inscrito exitosamente! 🎉"; la página pasa a "Ya estás registrado"
+con `cancelarInscripcion();` y "Quedan {N} lugares disponibles." baja en uno.
 
-**Precondiciones:**
+### TC-INS-002: Inscripción automática después del login
 
-- Usuario autenticado como administrador
-- Evento con inscripciones activas y canceladas
-- Navegar a `/eventos/[id]/inscripciones`
+**Pre:** sesión cerrada; evento futuro con cupo.
 
-**Pasos:**
+1. Tocar `inscribirme();`.
+2. Iniciar sesión.
 
-1. Verificar cómo se muestran los diferentes estados
+**Esperado:** redirige a `/iniciar-sesion?redirect=/eventos/{id}&autoRegister=true`; al volver ya
+queda inscripto y aparece el diálogo de éxito.
 
-**Resultado Esperado:**
+### TC-INS-003: Sesión vencida con la página abierta
 
-- ✅ Inscripciones activas muestran badge "Activa" (verde/default)
-- ✅ Inscripciones canceladas muestran badge "Cancelada" (rojo/destructive)
-- ✅ Inscripciones canceladas tienen opacidad reducida
-- ✅ Solo inscripciones activas tienen botón de eliminar
+1. Abrir el evento logueado, cerrar sesión en otra pestaña.
+2. Volver a la primera y tocar `inscribirme();`.
 
----
+**Esperado:** toast "Tu sesión se cerró. Iniciá sesión para inscribirte." y lleva al login con
+`autoRegister=true`.
 
-### TC-INS-ADM-005: Eliminar inscripción desde tabla
+### TC-INS-004: Cancelar y volver a inscribirse
 
-**Precondiciones:**
+1. Inscripto, tocar `cancelarInscripcion();`.
+2. Tocar `inscribirme();` de nuevo.
 
-- Usuario autenticado como administrador
-- Evento con inscripciones activas
-- Navegar a `/eventos/[id]/inscripciones`
+**Esperado:** toast "Inscripción cancelada exitosamente" y el cupo sube en uno. Al volver a
+inscribirse se reactiva la misma inscripción (en `/inscripciones` hay una sola fila, activa).
 
-**Pasos:**
+### TC-INS-005: Cupo ilimitado
 
-1. Hacer clic en botón de eliminar (ícono de basura) de una inscripción activa
-2. Confirmar en el diálogo
+**Pre:** evento sin cupo.
 
-**Resultado Esperado:**
+**Esperado:** no se muestra "Quedan N lugares" y nunca se pasa a lista de espera.
 
-- ✅ Se muestra diálogo de confirmación con nombre del usuario
-- ✅ Toast de éxito: "Inscripción eliminada exitosamente"
-- ✅ La inscripción desaparece de la tabla
-- ✅ El resumen en el header se actualiza
-- ✅ El cupo disponible aumenta en 1
+### TC-INS-006: Inscripción externa
 
----
+**Pre:** evento con URL de inscripción externa.
 
-### TC-INS-ADM-006: No mostrar botón eliminar en inscripciones canceladas
+1. Tocar el botón de inscripción.
+2. Abrir `/eventos/[id]/inscripcion`.
 
-**Precondiciones:**
+**Esperado:** el botón abre la URL externa en otra pestaña y la ruta redirige a ella. No se crea
+inscripción interna, no hay lista de espera y no se ve "inscripciones" para quien gestiona.
 
-- Usuario autenticado como administrador
-- Evento con inscripciones canceladas
-- Navegar a `/eventos/[id]/inscripciones`
+### TC-INS-007: `/eventos/[id]/inscripcion` sin inscripción externa
 
-**Resultado Esperado:**
+1. Abrir `/eventos/[id]/inscripcion` y `/eventos/[id]/inscripcion?autoRegister=true`.
 
-- ✅ Las inscripciones canceladas NO tienen botón de eliminar en la columna "Acciones"
-- ✅ Solo las inscripciones activas tienen botón de eliminar
+**Esperado:** redirigen a `/eventos/[id]` (la segunda conserva `autoRegister=true` e inscribe si hay
+sesión).
 
 ---
 
-### TC-INS-ADM-007: Evento sin inscripciones
+## Lista de espera
 
-**Precondiciones:**
+### TC-WAIT-001: Evento lleno: sumarse a la lista de espera
 
-- Usuario autenticado como administrador
-- Evento sin inscripciones
-- Navegar a `/eventos/[id]/inscripciones`
+**Pre:** evento con el cupo completo; usuario logueado no inscripto.
 
-**Resultado Esperado:**
+1. Abrir el evento y tocar `unirmeAListaDeEspera();`.
 
-- ✅ Se muestra mensaje: "Aún no hay inscripciones para este evento."
-- ✅ No se muestra la tabla
-- ✅ El header muestra: "Inscripciones (0 total - 0 activas, 0 canceladas)"
+**Esperado:** se ve "Cupo completo". Toast "Te sumaste a la lista de espera (#N)" y la página
+muestra "Estás en la lista de espera · lugar #N" con `salirDeLaListaDeEspera();`.
 
----
-
-### TC-INS-ADM-008: Navegación y breadcrumbs
+### TC-WAIT-002: Marcado como lleno a mano
 
-**Precondiciones:**
+**Pre:** evento con cupo libre y "marcado como lleno" activado.
 
-- Usuario autenticado como administrador
-- Evento existente
-- Navegar a `/eventos/[id]/inscripciones`
+**Esperado:** se comporta como lleno: el botón anota en la lista de espera y nadie se promueve
+aunque haya lugar.
 
-**Pasos:**
+### TC-WAIT-003: Salir de la lista de espera
 
-1. Verificar breadcrumbs
-2. Hacer clic en botón "Volver" (flecha hacia atrás)
+1. En espera, tocar `salirDeLaListaDeEspera();`.
 
-**Resultado Esperado:**
+**Esperado:** toast "Saliste de la lista de espera"; quienes estaban detrás suben un lugar. Si
+vuelve a anotarse, entra al final.
 
-- ✅ Breadcrumbs muestran: Inicio > Eventos > [Nombre del evento] > Inscripciones
-- ✅ Botón "Volver" redirige a `/eventos/[id]`
-- ✅ Navegación funciona correctamente
+### TC-WAIT-004: Una baja promueve al primero
 
----
+**Pre:** evento lleno con al menos 2 personas esperando; MailHog.
 
-### TC-INS-ADM-009: Resumen en página de detalle
+1. Con un inscripto, tocar `cancelarInscripcion();`.
+2. Abrir el evento con el #1 de la lista.
 
-**Precondiciones:**
+**Esperado:** el #1 queda inscripto (orden de llegada), recibe el email "Conseguiste un lugar en
+{evento} - programaConNosotros" y el resto avanza un lugar. Los admins reciben "Promoción automática
+desde lista de espera".
 
-- Usuario autenticado como administrador
-- Evento con inscripciones (activas y canceladas)
-- Navegar a `/eventos/[id]`
+### TC-WAIT-005: Subir el cupo o desmarcar "lleno" promueve
 
-**Pasos:**
+**Pre:** evento lleno con 3 personas esperando; organizador.
 
-1. Verificar card de inscripciones en la página de detalle
+1. Editar el evento, subir el cupo en 2 y guardar.
+2. Repetir con un evento "marcado como lleno", desmarcándolo.
 
-**Resultado Esperado:**
+**Esperado:** las dos primeras quedan inscriptas y reciben el email; la tercera sigue como #1. En el
+segundo caso se llenan los lugares libres.
 
-- ✅ Se muestra card con título "Inscripciones"
-- ✅ Muestra cantidad de inscripciones activas
-- ✅ Muestra total de inscripciones (incluyendo canceladas)
-- ✅ Botón "Ver todas" visible y funcional
-- ✅ Al hacer clic, redirige a `/eventos/[id]/inscripciones`
+### TC-WAIT-006: Borrar una inscripción promueve
 
----
+1. Como organizador, borrar una inscripción activa desde `/eventos/[id]/inscripciones`.
 
-### TC-INS-ADM-010: Orden de inscripciones en tabla
+**Esperado:** el primero de la lista queda inscripto. Borrar una inscripción ya cancelada no
+promueve a nadie.
 
-**Precondiciones:**
+### TC-WAIT-007: Sin promoción en eventos terminados
 
-- Usuario autenticado como administrador
-- Evento con múltiples inscripciones creadas en diferentes fechas
-- Navegar a `/eventos/[id]/inscripciones`
+**Pre:** evento que ya terminó, con gente en espera.
 
-**Resultado Esperado:**
+1. Como organizador, editar el evento y subirle el cupo.
 
-- ✅ Las inscripciones están ordenadas por fecha descendente
-- ✅ Las inscripciones más recientes aparecen primero
-- ✅ El orden se mantiene consistente
+**Esperado:** nadie se promueve ni recibe email.
 
 ---
 
-## Casos Edge y Condiciones de Carrera
+## Gestión de inscriptos
 
-### TC-EDGE-001: Inscripción simultánea con mismo email
+### TC-GES-001: Página de inscripciones
 
-**Precondiciones:**
+**Pre:** organizador de un evento con inscriptos (algunos cancelados) y lista de espera.
 
-- Evento con cupo disponible
-- Dos usuarios intentan inscribirse con el mismo email simultáneamente
+1. Abrir `/eventos/[id]/inscripciones`.
 
-**Pasos:**
+**Esperado:** estadísticas activas (con cuántas canceladas), estudiantes, profesionales y en espera
+(con el cupo). Tabla "lista de espera" en orden de promoción y tabla de inscriptos con datos del
+perfil (cargo, empresa, carrera, lugar de estudio) y estado.
 
-1. Usuario A completa formulario con email "test@ejemplo.com"
-2. Usuario B completa formulario con email "test@ejemplo.com"
-3. Ambos envían casi simultáneamente
+### TC-GES-002: Eliminar una inscripción
 
-**Resultado Esperado:**
+1. Eliminar una inscripción y confirmar.
 
-- ✅ Solo una inscripción se crea exitosamente
-- ✅ El otro usuario recibe error: "Ya estás registrado en este evento con este correo electrónico"
-- ✅ El constraint único de BD previene duplicados
+**Esperado:** diálogo "¿Eliminar inscripción?", toast "Inscripción eliminada exitosamente" y la
+fila desaparece.
 
----
+### TC-GES-003: Mandar un mail a los inscriptos
 
-### TC-EDGE-002: Cupo completo entre carga y envío
+**Pre:** MailHog; evento con inscriptos y gente en espera, con una persona en las dos listas.
 
-**Precondiciones:**
+1. Elegir cada audiencia (confirmados, lista de espera, todos) y revisar cuánta gente alcanza.
+2. Mandar uno a "todos".
 
-- Evento con cupo: 5
-- Inscripciones actuales: 4
+**Esperado:** toast "Listo: N mails enviados"; cada persona recibe uno solo, con asunto
+"{evento}: {asunto}". Asunto de menos de 3 caracteres o mensaje de menos de 10 no se envía. Después
+de 5 envíos en una hora, el sexto se frena por rate limit.
 
-**Pasos:**
+### TC-GES-004: La página se actualiza sola
 
-1. Usuario A carga página de inscripción (ve 1 cupo disponible)
-2. Otro usuario se inscribe (cupo completo)
-3. Usuario A completa y envía formulario
+1. Abrir el evento en dos navegadores; inscribirse en uno.
 
-**Resultado Esperado:**
+**Esperado:** en el otro el contador de lugares se actualiza sin recargar.
 
-- ✅ Validación en servidor detecta cupo completo
-- ✅ Toast de error: "El cupo del evento está completo. No se pueden aceptar más inscripciones."
-- ✅ No se crea la inscripción
-
 ---
 
-### TC-EDGE-003: Evento eliminado mientras se completa formulario
+## Avisos
 
-**Precondiciones:**
+### TC-AVI-001: Evento nuevo
 
-- Evento existente
-- Usuario en página de inscripción
+**Pre:** MailHog; otro usuario con email verificado.
 
-**Pasos:**
+1. Crear un evento futuro.
 
-1. Admin elimina el evento (soft delete)
-2. Usuario completa y envía formulario
+**Esperado:** el otro usuario recibe la notificación "Nuevo evento" (y push si lo tiene activado) y
+el email "Nuevo evento: {nombre}". Quien lo creó no recibe nada.
 
-**Resultado Esperado:**
+### TC-AVI-002: Evento cargado ya pasado
 
-- ✅ Error: "Evento no encontrado"
-- ✅ No se crea la inscripción
+1. Crear un evento con fecha pasada.
 
----
+**Esperado:** no sale ninguna notificación ni email.
 
-### TC-EDGE-004: Inscripción con email que tiene inscripción cancelada
+### TC-AVI-003: Cambio de fecha o lugar
 
-**Precondiciones:**
+**Pre:** evento futuro con inscriptos.
 
-- Evento con cupo disponible
-- Inscripción cancelada con email "test@ejemplo.com"
+1. Editar solo la fecha. Después solo el lugar. Después solo la descripción.
 
-**Pasos:**
+**Esperado:** los inscriptos activos reciben "Cambió la fecha de {evento}" y "Cambió el lugar de
+{evento}" (notificación y email, con el dato cambiado resaltado). Cambiar la descripción no avisa.
+Quien edita no recibe aviso aunque esté inscripto.
 
-1. Usuario intenta inscribirse con email "test@ejemplo.com"
-2. Completar formulario
-3. Enviar
+### TC-AVI-004: Notificaciones a admins
 
-**Resultado Esperado:**
+1. Inscribirse, cancelar, entrar y salir de una lista de espera.
 
-- ✅ Inscripción exitosa
-- ✅ Se reactiva la inscripción anterior (no se crea nueva)
-- ✅ El cupo se actualiza correctamente
+**Esperado:** los admins reciben "Nueva inscripción a evento", "Inscripción cancelada", "Nueva
+persona en lista de espera" y "Salida de lista de espera".
 
 ---
 
-### TC-EDGE-005: Cancelar y re-inscribirse rápidamente
+## Charlas y call for speakers
 
-**Precondiciones:**
+### TC-CHA-001: Proponer una charla
 
-- Usuario inscrito en evento
-- Evento con cupo disponible
+**Pre:** usuario logueado; evento con call for speakers habilitado.
 
-**Pasos:**
+1. En el evento tocar "proponer →"; el orador 1 viene precargado del perfil.
+2. Completar título y descripción y tocar `enviarPropuesta();`.
 
-1. Usuario cancela inscripción
-2. Inmediatamente intenta inscribirse de nuevo
+**Esperado:** toast "¡Propuesta enviada! Nos pondremos en contacto pronto.", redirige al evento y
+los admins reciben "Nueva propuesta de charla". Sin sesión, el link lleva al login.
 
-**Resultado Esperado:**
+### TC-CHA-002: Validaciones de oradores
 
-- ✅ Cancelación exitosa
-- ✅ Re-inscripción exitosa
-- ✅ El cupo se maneja correctamente en ambos casos
+1. Teléfono `+54 381 123`; no marcar profesional ni estudiante; marcar profesional sin empresa.
+2. Agregar un segundo orador con `agregarOrador();` y quitarlo.
 
----
-
-### TC-EDGE-006: Acceso directo a inscripción con cupo completo (URL directa)
+**Esperado:** "El teléfono debe contener solo dígitos…", "Debés seleccionar al menos una opción:
+profesional o estudiante" y "La empresa es requerida para profesionales". El botón de quitar solo
+aparece con 2 o más oradores.
 
-**Precondiciones:**
+### TC-CHA-003: Call for speakers cerrado
 
-- Evento con cupo: 10
-- Inscripciones actuales: 10 (cupo completo)
-- Usuario NO registrado
-- URL directa: `/eventos/[id]/inscripcion`
+1. Abrir `/eventos/[id]/proponer-charla` de un evento sin call for speakers.
 
-**Pasos:**
+**Esperado:** redirige al evento.
 
-1. Navegar directamente a la URL de inscripción (sin pasar por página de detalle)
-2. Verificar que se muestra el mensaje correcto
+### TC-CHA-004: Aceptar una propuesta y crear la charla
 
-**Resultado Esperado:**
+**Pre:** organizador con una propuesta pendiente.
 
-- ✅ NO se muestra el formulario
-- ✅ Se muestra card con mensaje de cupo completo
-- ✅ Mensaje: "Ya no quedan lugares disponibles."
-- ✅ Botón para volver al evento
+1. En `/eventos/[id]/propuestas-de-charlas` tocar `aceptar();` y luego `crearCharla();`.
+2. Intentar crearla otra vez.
 
----
+**Esperado:** toasts "Propuesta aceptada" y "Charla creada a partir de la propuesta"; el botón queda
+como "// charla creada" deshabilitado, la charla aparece en `/charlas` y los oradores con cuenta
+reciben una notificación.
 
-### TC-EDGE-007: Cambio de cupo entre carga de página y envío de formulario
+### TC-CHA-005: Propuestas de otro evento
 
-**Precondiciones:**
+**Pre:** organizador del evento A; propuesta del evento B.
 
-- Evento con cupo: 10
-- Inscripciones actuales: 9
-- Usuario en página de inscripción
+1. Intentar aceptar o borrar la propuesta del evento B.
 
-**Pasos:**
+**Esperado:** "No tenés permisos para realizar esta acción".
 
-1. Usuario carga página de inscripción (ve 1 lugar disponible)
-2. Otro usuario se inscribe (cupo completo)
-3. Usuario original completa y envía formulario
+### TC-CHA-006: Cargar charlas del evento
 
-**Resultado Esperado:**
+1. En `/eventos/[id]/charlas` crear una charla con slides y video, editarla y borrarla.
 
-- ✅ Validación en servidor detecta cupo completo
-- ✅ Toast de error: "El cupo del evento está completo. No se pueden aceptar más inscripciones."
-- ✅ No se crea la inscripción
-- ✅ El usuario puede ver el mensaje de cupo completo si recarga
+**Esperado:** se ve en la página del evento (y en el recuerdo cuando el evento termina) y en
+`/charlas`; al borrarla desaparece de ambos.
 
 ---
-
-## Visualización y UI
 
-### TC-UI-001: Página de lista de eventos
+## Eventos pasados
 
-**Precondiciones:**
+### TC-PAS-001: El evento terminado se muestra como recuerdo
 
-- Varios eventos creados (algunos eliminados)
-- Navegar a `/eventos`
+**Pre:** evento con fecha pasada, fotos en la galería y charlas.
 
-**Resultado Esperado:**
+1. Abrir el evento.
 
-- ✅ Se muestran solo eventos no eliminados
-- ✅ Eventos ordenados por fecha descendente (más recientes primero)
-- ✅ Cada evento muestra: imagen, nombre, fecha, descripción truncada
+**Esperado:** vista de recuerdo con portada, número de catálogo, cuánta gente se anotó, mosaico de
+fotos, charlas, flyer con créditos y sponsors. No hay botón de inscripción ni lista de espera.
 
----
-
-### TC-UI-002: Página de detalle del evento
-
-**Precondiciones:**
+### TC-PAS-002: Fin del evento
 
-- Evento con todos los datos
-- Navegar a `/eventos/[id]`
-
-**Resultado Esperado:**
-
-- ✅ Se muestra toda la información del evento
-- ✅ Fotos del evento (si hay)
-- ✅ Mapa con ubicación (si hay coordenadas)
-- ✅ Sponsors en columna lateral (si hay)
-- ✅ Información de cupo (si está definido)
-- ✅ Botones según estado y permisos
-
----
+1. Evento de hoy sin fecha de fin, ya empezado.
+2. Evento con fecha de fin dentro de una hora.
 
-### TC-UI-003: Responsive - Sponsors en columna lateral
+**Esperado:** los dos siguen mostrando la página de inscripción; el primero pasa a recuerdo recién
+después de medianoche y el segundo al pasar su fin.
 
-**Precondiciones:**
+### TC-PAS-003: No se puede inscribir a un evento terminado
 
-- Evento con sponsors
-- Pantalla grande (xl breakpoint)
+1. Con la página de un evento abierta justo antes de que termine, tocar `inscribirme();` después.
 
-**Resultado Esperado:**
+**Esperado:** "Este evento ya terminó" y no se crea inscripción.
 
-- ✅ Sponsors se muestran en la columna lateral (segunda columna)
-- ✅ Debajo de la card de información
-- ✅ En pantallas pequeñas, se muestran en la columna principal
+### TC-PAS-004: Elegir y encuadrar la portada
 
----
+**Pre:** organizador de un evento pasado con varias fotos.
 
-### TC-UI-004: Descripción truncada en tarjetas
+1. Elegir una foto como portada.
+2. Ajustar el punto focal y el zoom y tocar `guardarEncuadre();`.
+3. Elegir otra foto; después volver a la portada aleatoria.
 
-**Precondiciones:**
+**Esperado:** toasts "Portada actualizada", "Encuadre guardado" y "La portada vuelve a ser
+aleatoria". Al elegir otra foto el encuadre vuelve al centro sin zoom. Un usuario común no ve estos
+controles.
 
-- Evento con descripción larga
-- Navegar a `/eventos`
+### TC-PAS-005: Lista de eventos
 
-**Resultado Esperado:**
+1. Abrir `/eventos`.
 
-- ✅ La descripción se trunca con puntos suspensivos
-- ✅ Máximo 3 líneas (`line-clamp-3`)
+**Esperado:** próximos arriba y pasados agrupados por año, con inscriptos, fotos y charlas. Los
+eventos eliminados no aparecen.
 
 ---
-
-### TC-UI-005: Estado visual de inscripciones canceladas
-
-**Precondiciones:**
 
-- Admin en página de detalle
-- Evento con inscripciones (algunas canceladas)
-
-**Resultado Esperado:**
-
-- ✅ Inscripciones canceladas se muestran con opacidad reducida
-- ✅ Badge "Cancelada" visible
-- ✅ NO tienen botón de eliminar
-
----
+## Links, calendario y URLs cortas
 
-### TC-UI-006: Información de cupo en formulario de inscripción
+### TC-LNK-001: Agregar al calendario
 
-**Precondiciones:**
+1. Tocar el link de Google Calendar.
+2. Abrir `/eventos/[id]/calendario.ics` y `/eventos/no-existe/calendario.ics`.
 
-- Evento con cupo definido
-- Navegar a `/eventos/[id]/inscripcion`
+**Esperado:** Google Calendar abre con nombre, fecha y lugar. El `.ics` se descarga como
+`pcn-evento-{id}.ics` (`text/calendar`) y se importa bien en Apple Calendar; el id inexistente da 404.
 
-**Resultado Esperado:**
+### TC-LNK-002: Mapa
 
-- ✅ Se muestra información de cupo disponible arriba del formulario
-- ✅ Formato: "Quedan X lugares disponibles." cuando hay cupo
-- ✅ Formato: "Ya no quedan lugares disponibles." cuando el cupo está completo
-- ✅ Icono de usuarios visible
+**Pre:** evento presencial con link de Google Maps (probar también un link corto `maps.app.goo.gl`).
 
----
+**Esperado:** se ve el mapa embebido del lugar y el link abre Google Maps. Sin link no hay mapa.
 
-### TC-UI-007: Pre-fill de datos en formulario de inscripción
+### TC-LNK-003: URL corta
 
-**Precondiciones:**
+**Pre:** dos eventos con `shortcut` `cowork`: uno pasado y uno futuro.
 
-- Usuario autenticado con perfil completo
-- Navegar a `/eventos/[id]/inscripcion`
+1. Abrir `/cowork` y `/Cowork`.
+2. Abrir un shortcut que no use ningún evento futuro.
 
-**Resultado Esperado:**
+**Esperado:** las dos primeras llevan al evento futuro; la tercera lleva a `/eventos`.
 
-- ✅ Campos pre-llenados: nombre, apellido, email
-- ✅ Campos de trabajo/estudio pre-llenados según perfil
-- ✅ Usuario puede modificar los datos
+### TC-LNK-004: Vista previa al compartir
 
----
+1. Pegar el link de un evento con flyer y el de uno sin flyer ni fotos en un validador de Open
+   Graph.
 
-### TC-UI-008: Redirección desde /meetup
+**Esperado:** el primero usa el flyer; el segundo, la imagen generada de `/eventos/[id]/og-image`.
 
-**Precondiciones:**
+### TC-LNK-005: Anuncios de un evento
 
-- Evento futuro con nombre que contiene "meetup" (case-insensitive)
-- Navegar a `/meetup`
+**Pre:** admin.
 
-**Resultado Esperado:**
+1. En `/anuncios` crear un anuncio asociado a un evento, fijado, y otro sin publicar.
+2. Abrir el evento.
 
-- ✅ Redirección automática a `/eventos/[id]/inscripcion` del próximo meetup
-- ✅ Si no hay meetup futuro, redirección a `/eventos`
+**Esperado:** toast "Anuncio creado exitosamente". En el evento aparece solo el publicado, fijado
+primero. Un usuario común no ve `nuevoAnuncio();`.
 
 ---
-
-### TC-UI-009: Mensajes de cupo en diferentes estados
 
-**Precondiciones:**
+## Concurrencia y casos borde
 
-- Evento con cupo: 20
-- Varios estados de inscripciones
+### TC-EDGE-001: Doble clic en inscribirme
 
-**Pasos:**
+1. Hacer doble clic rápido en `inscribirme();`.
 
-1. Verificar mensajes en diferentes escenarios:
-   - Cupo disponible (15 inscripciones)
-   - Cupo completo (20 inscripciones)
-   - En página de detalle
-   - En formulario de inscripción
-   - En página de inscripción cuando cupo completo
+**Esperado:** queda una sola inscripción; si el segundo pedido llega, el error es "Ya estás
+inscripto en este evento o en su lista de espera".
 
-**Resultado Esperado:**
+### TC-EDGE-002: Dos personas por el último lugar
 
-- ✅ Cuando hay cupo: "Quedan X lugares disponibles." (con punto final)
-- ✅ Cuando cupo completo: "Ya no quedan lugares disponibles." (con punto final)
-- ✅ Los mensajes son consistentes en todas las páginas
-- ✅ No se muestra información redundante (ej: "X de Y cupos")
+**Pre:** evento con un solo lugar libre; dos usuarios con la página abierta.
 
----
-
-## Checklist de Regresión
-
-### Funcionalidades Críticas
-
-- [ ] Crear evento con todos los campos
-- [ ] Editar evento (incluyendo agregar/modificar cupo)
-- [ ] Eliminar evento (soft delete)
-- [ ] Inscribirse a evento (logueado y no logueado)
-- [ ] Cancelar inscripción (logueado y no logueado)
-- [ ] Eliminar inscripción (admin)
-- [ ] Validación de cupo completo
-- [ ] Prevenir duplicados de email
-- [ ] Botón de inscripción no aparece cuando cupo completo
-- [ ] Mensaje correcto al acceder directo a inscripción con cupo completo
-- [ ] Acceder a página de inscripciones (solo admin)
-- [ ] Visualizar tabla de inscripciones con todos los datos
-- [ ] Eliminar inscripción desde la tabla
-
-### Validaciones
-
-- [ ] Campos obligatorios
-- [ ] Formatos de URL y email
-- [ ] Campos condicionales (estudiante/profesional)
-- [ ] Fechas (fin posterior a inicio)
-- [ ] Cupo mayor a 0
-
-### Permisos
-
-- [ ] Solo admin puede crear/editar/eliminar eventos
-- [ ] Solo admin ve card de inscripciones en página de detalle
-- [ ] Solo admin puede acceder a página de inscripciones
-- [ ] Solo admin puede eliminar inscripciones
-
-### Casos Edge
-
-- [ ] Inscripción simultánea con mismo email
-- [ ] Cupo completo entre carga y envío
-- [ ] Re-inscripción después de cancelar
-- [ ] Liberación de cupo al cancelar/eliminar
-
-### UI/UX
-
-- [ ] Responsive design
-- [ ] Mensajes de error claros
-- [ ] Toasts informativos
-- [ ] Estados visuales correctos
-- [ ] Texto de cupo: "Quedan X lugares disponibles."
-- [ ] Texto cuando cupo completo: "Ya no quedan lugares disponibles."
-- [ ] Consistencia de mensajes en todas las páginas
-- [ ] Texto de cupo: "Quedan X lugares disponibles."
-- [ ] Texto cuando cupo completo: "Ya no quedan lugares disponibles."
-- [ ] Consistencia de mensajes en todas las páginas
+1. Tocar `inscribirme();` en los dos casi a la vez.
 
----
+**Esperado:** uno queda inscripto y el otro entra a la lista de espera como #1. Nunca quedan los
+dos inscriptos (el evento se bloquea con `FOR UPDATE` mientras se decide).
 
-**Notas para Testing:**
+### TC-EDGE-003: Un lugar libre es primero de quien ya esperaba
 
-1. **Datos de prueba recomendados:**
+**Pre:** evento con gente en espera al que se le subió el cupo directo en la base (sin pasar por
+editar).
 
-   - Crear varios eventos con diferentes configuraciones
-   - Crear usuarios de prueba (admin y regular)
-   - Crear inscripciones de prueba (activas y canceladas)
+1. Un usuario nuevo toca `inscribirme();`.
 
-2. **Herramientas útiles:**
+**Esperado:** primero se promueve a quienes esperaban; el usuario nuevo solo queda inscripto si
+sobra lugar, si no entra al final de la lista.
 
-   - DevTools del navegador para verificar requests
-   - Consola de Prisma para verificar datos en BD
-   - Network tab para verificar validaciones
+### TC-EDGE-004: Evento eliminado con la página abierta
 
-3. **Casos a probar en diferentes navegadores:**
+1. Abrir el evento, eliminarlo en otra pestaña y tocar `inscribirme();`.
 
-   - Chrome
-   - Firefox
-   - Safari
-   - Edge
+**Esperado:** "Evento no encontrado" y no se crea inscripción.
 
-4. **Casos a probar en diferentes dispositivos:**
-   - Desktop
-   - Tablet
-   - Mobile
+### TC-EDGE-005: Rate limit de inscripciones
 
----
+1. Inscribirse y cancelar más de 20 veces en 10 minutos.
 
-**Última actualización**: Diciembre 2024
+**Esperado:** a partir de la 21ª se frena con el mensaje de rate limit.
