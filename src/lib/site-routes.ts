@@ -70,6 +70,7 @@ export const SITE_ROUTES = [
   '/motivacion',
   '/music',
   '/notificaciones',
+  '/oauth/autorizar',
   '/offline',
   '/partners',
   '/perfil',
