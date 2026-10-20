@@ -236,6 +236,34 @@ export const adrs: Adr[] = [
     ],
     references: ['src/lib/web-push.ts', 'src/lib/push-endpoints.ts', 'public/sw.js'],
   },
+  {
+    number: 12,
+    slug: 'servidor-mcp-oauth',
+    title: 'Servidor MCP remoto dentro del monolito, con OAuth 2.1 propio',
+    status: 'aceptada',
+    date: '2026-10-19',
+    context:
+      'Los admins querían consultar y cargar datos del sitio desde Claude (claude.ai y Claude Code) sin abrir la base ni copiar a mano. claude.ai solo se conecta a servidores MCP remotos y exige OAuth con registro dinámico de clientes. El acceso incluye datos privados (emails, teléfonos, inscriptos), así que un error de diseño expone a toda la comunidad.',
+    decision:
+      'Un endpoint MCP (Streamable HTTP, sin estado) en /api/mcp de la misma app de Next.js, con un servidor OAuth 2.1 propio en src/lib/oauth: clientes públicos, PKCE S256 obligatorio, redirects en allowlist, tokens hasheados atados al recurso y refresh que rota con detección de reuso. Solo admins con 2FA, chequeado en cada request. Las tools de escritura llaman a las server actions existentes corriendo como el admin del token (AsyncLocalStorage en getCurrentSession), en vez de reimplementar la lógica.',
+    consequences: [
+      'Funciona igual desde claude.ai, Claude Desktop y Claude Code, sin infraestructura nueva: mismo deploy, misma base, mismos permisos y avisos que la web.',
+      'Una tool nueva hereda la validación y los permisos de su server action; el test de canarios impide que una lectura filtre secretos.',
+      'Mantenemos código de OAuth propio: cada cambio pasa por los tests de integración del flujo completo (src/lib/oauth/oauth.db.test.ts).',
+      'CloudFront tiene que reenviar el header Authorization y no cachear /api/mcp ni /oauth/*.',
+    ],
+    alternatives: [
+      'Servidor MCP local por stdio con la DATABASE_URL: no sirve para claude.ai y pone credenciales de producción en cada máquina.',
+      'Tokens personales (Bearer) generados en /admin: más simple, pero claude.ai no los soporta y no rotan ni vencen solos.',
+      'Un proveedor de identidad externo (Auth0, Clerk): otra cuenta y otro sistema de usuarios para un solo caso, cuando el sitio ya tiene sesiones y 2FA propios.',
+    ],
+    references: [
+      'docs/mcp.md',
+      'src/lib/mcp/registry.ts',
+      'src/lib/oauth/tokens.ts',
+      'src/lib/acting-user.ts',
+    ],
+  },
 ];
 
 export const adrAnchor = (adr: Pick<Adr, 'slug'>) => `adr-${adr.slug}`;

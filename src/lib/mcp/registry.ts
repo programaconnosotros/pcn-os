@@ -23,18 +23,6 @@ export const MCP_TOOLS: McpTool[] = [
   ...adminTools,
 ];
 
-/** Name, description and kind of each tool, for the catalog on /desarrollo. */
-export const mcpToolCatalog = MCP_TOOLS.map(
-  ({ name, title, description, area, kind, destructive }) => ({
-    name,
-    title,
-    description,
-    area,
-    kind,
-    destructive: !!destructive,
-  }),
-);
-
 /** Ids and field names of a write, for the audit log: never the content itself. */
 const auditArgs = (args: Record<string, unknown>) => ({
   ...(typeof args.id === 'string' && { id: args.id }),

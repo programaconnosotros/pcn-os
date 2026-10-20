@@ -1,3 +1,4 @@
+import { MCP_TOOL_CATALOG } from '@/lib/mcp/catalog';
 import { render, screen } from '@testing-library/react';
 import type { TocSection } from '@/components/ui/table-of-contents';
 import { renderInPlatform } from '@/test/platform';
@@ -86,6 +87,7 @@ describe('DesarrolloPage', () => {
         'arquitectura',
         'decisiones',
         'base-de-datos',
+        'mcp',
         'team',
         'por-que-contribuir',
       ]),
@@ -97,7 +99,15 @@ describe('DesarrolloPage', () => {
     for (const group of techNoteGroups) {
       for (const note of group.notes) expect(ids).toContain(`nota-${note.id}`);
     }
-    expect(ids).toHaveLength(14 + architectureViews.length + noteCount);
+    expect(ids).toHaveLength(15 + architectureViews.length + noteCount);
+  });
+
+  it('lists every MCP tool, marking the writes', () => {
+    renderInPlatform(<DesarrolloPage />);
+    const section = document.getElementById('mcp')!;
+    expect(section).toHaveTextContent(`Servidor MCP (${MCP_TOOL_CATALOG.length} tools)`);
+    for (const tool of MCP_TOOL_CATALOG) expect(section).toHaveTextContent(tool.name);
+    expect(section).toHaveTextContent('delete_announcementrm');
   });
 
   it('describes the database from the generated schema', () => {

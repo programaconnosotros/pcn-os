@@ -35,6 +35,7 @@ import { adrs } from './adrs';
 import { DbDiagram } from '@/components/desarrollo/db-diagram';
 import { ArchitectureDiagram } from '@/components/desarrollo/architecture-diagram';
 import { architectureViews } from './architecture';
+import { mcpConnect, mcpSecurity, mcpToolCount, mcpToolGroups } from './mcp';
 import { DB_SCHEMA_UPDATED_AT, dbEnums, dbModels, dbRelations } from './db-schema';
 import type { TocSection } from '@/components/ui/table-of-contents';
 
@@ -290,6 +291,7 @@ const tocSections: TocSection[] = [
   section('contribuir', 'Cómo contribuir'),
   section('decisiones', 'Decisiones (ADRs)'),
   section('base-de-datos', 'Base de datos'),
+  section('mcp', 'Servidor MCP'),
   section('notas', 'Notas del stack'),
   ...techNoteGroups.flatMap((group) =>
     group.notes.map((note) => ({
@@ -353,8 +355,8 @@ const DesarrolloPage = () => (
               <p className="mb-4 max-w-3xl text-sm leading-relaxed text-muted-foreground">
                 El mismo sistema visto desde {architectureViews.length} ángulos: cómo se reparte la
                 lógica, dónde corre cada pieza, cómo llega un cambio a producción, cómo se levanta
-                en tu máquina y cómo colaboran las piezas en una petición real. Debajo de cada
-                diagrama está explicado cada componente.
+                en tu máquina, cómo colaboran las piezas en una petición real y cómo se conecta
+                Claude por MCP. Debajo de cada diagrama está explicado cada componente.
               </p>
               <div className="space-y-6">
                 {architectureViews.map((view) => (
@@ -468,6 +470,51 @@ const DesarrolloPage = () => (
                 <span className="text-pcnGreen-700"># regenera el diagrama desde el schema</span> ·
                 última actualización: {schemaUpdatedAt}
               </p>
+            </Section>
+
+            <Section id="mcp" title={`Servidor MCP (${mcpToolCount} tools)`}>
+              <p className="mb-4 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                El sitio expone un servidor <Code>MCP</Code> (Model Context Protocol) en{' '}
+                <Code>/api/mcp</Code>: conectado a Claude, permite consultar todo lo que guarda el
+                sitio y crear o editar eventos, anuncios y recomendaciones, como un admin desde la
+                web. El detalle está en <Code>docs/mcp.md</Code>.
+              </p>
+              <DefinitionList items={mcpConnect} />
+              <h3 className="mt-5 mb-2 font-mono text-sm text-pcnGreen">
+                <span className="text-pcnGreen-500">### </span>
+                Seguridad
+              </h3>
+              <DefinitionList items={mcpSecurity} />
+              <h3 className="mt-5 mb-2 font-mono text-sm text-pcnGreen">
+                <span className="text-pcnGreen-500">### </span>
+                Tools
+              </h3>
+              <dl className="grid gap-x-4 gap-y-3 text-xs sm:grid-cols-[200px_1fr]">
+                {mcpToolGroups.map((group) => (
+                  <div key={group.area} className="contents">
+                    <dt className="font-mono text-pcnGreen">{group.area}</dt>
+                    <dd>
+                      <ul className="space-y-1">
+                        {group.tools.map((tool) => (
+                          <li key={tool.name} className="leading-relaxed text-muted-foreground">
+                            <span className="font-mono text-foreground">{tool.name}</span>
+                            <span
+                              className={
+                                tool.kind === 'write'
+                                  ? 'ml-1.5 font-mono text-[10px] text-amber-300'
+                                  : 'ml-1.5 font-mono text-[10px] text-pcnGreen-600'
+                              }
+                            >
+                              {tool.kind === 'write' ? (tool.destructive ? 'rm' : 'write') : 'read'}
+                            </span>{' '}
+                            · {tool.title}
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </Section>
 
             <Section id="notas" title={`Notas teóricas del stack (${techNoteCount})`}>
