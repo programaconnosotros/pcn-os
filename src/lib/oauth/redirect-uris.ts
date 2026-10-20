@@ -11,6 +11,11 @@ const CLAUDE_CALLBACKS = [
 ];
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+/**
+ * Paths a loopback callback may have: Claude Code's and the MCP Inspector's. Anything else on
+ * localhost (a dev server's page that logs or redirects its query) could leak the code.
+ */
+const LOOPBACK_PATHS = new Set(['/callback', '/oauth/callback']);
 const MAX_LENGTH = 500;
 
 /** The fixed allowlist plus any URIs in `MCP_ALLOWED_REDIRECT_URIS` (comma separated). */
@@ -31,15 +36,21 @@ const parse = (value: string) => {
 };
 
 /**
- * A loopback redirect: plain `http` to localhost, 127.0.0.1 or ::1 on any port, written exactly
- * as the URL parser normalizes it (no userinfo, fragment, backslashes or odd encodings).
+ * A loopback redirect: plain `http` to localhost, 127.0.0.1 or ::1 on any port, at one of the
+ * known callback paths, without a query, written exactly as the URL parser normalizes it (no
+ * userinfo, fragment, backslashes or odd encodings).
  */
 const loopbackUrl = (value: string) => {
   const url = parse(value);
   if (!url || url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname)) return null;
-  if (url.username || url.password || url.hash || url.href !== value) return null;
+  if (url.username || url.password || url.hash || url.search || url.href !== value) return null;
+  if (!LOOPBACK_PATHS.has(url.pathname)) return null;
   return url;
 };
+
+/** `true` for a loopback redirect (an app on the admin's own machine, like Claude Code). */
+export const isLoopbackRedirectUri = (value: unknown) =>
+  typeof value === 'string' && value.length <= MAX_LENGTH && loopbackUrl(value) !== null;
 
 /** `true` if a client may register `value` as a redirect URI. */
 export const isAllowedRedirectUri = (value: unknown): value is string => {
@@ -64,8 +75,7 @@ export const matchesRegisteredRedirect = (registered: string[], requested: unkno
     return (
       candidate !== null &&
       candidate.hostname === url.hostname &&
-      candidate.pathname === url.pathname &&
-      candidate.search === url.search
+      candidate.pathname === url.pathname
     );
   });
 };

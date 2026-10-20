@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { runAsUser } from '@/lib/acting-user';
+import { RATE_LIMITS, RateLimitError, consumeRateLimit } from '@/lib/rate-limit';
 import { auditMcp } from '@/lib/oauth/audit';
 import type { McpTool } from './define';
 import { toolError, toolErrorFrom, toolJson, type ToolResult } from './output';
@@ -42,6 +43,23 @@ export const runTool = async (
   if (!isMcpAuthExtra(extra)) return toolError('No autorizado');
   const session = await mcpSession(extra);
   if (!session) return toolError('No autorizado');
+
+  if (tool.kind === 'write') {
+    const familyKey = `family:${extra.familyId}`;
+    const wait =
+      consumeRateLimit(`mcpWrite:${familyKey}`, RATE_LIMITS.mcpWrite) ||
+      (tool.notifies ? consumeRateLimit(`mcpNotify:${familyKey}`, RATE_LIMITS.mcpNotify) : 0);
+    if (wait > 0) {
+      const limit = tool.notifies ? 'mcpNotify' : 'mcpWrite';
+      return toolErrorFrom(new RateLimitError(limit, wait), tool.name);
+    }
+  } else if (tool.sensitive) {
+    // Private data leaving the site: who read what, so a leaked token leaves a trail.
+    await auditMcp(`read ${tool.name}`, {
+      userId: session.user.id,
+      metadata: { ...auditArgs(args), familyId: extra.familyId },
+    });
+  }
 
   try {
     const result = await runAsUser(session, () => tool.handler(args, session));

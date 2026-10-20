@@ -11,6 +11,7 @@ const searchMembers = defineTool({
   title: 'Buscar miembros',
   area: 'miembros',
   kind: 'read',
+  sensitive: true,
   description:
     'Miembros de la comunidad, con email y teléfono, filtrados por nombre o email, rol o si son embajadores. Sin `query`, todos, del más nuevo al más viejo.',
   input: z.object({
@@ -65,6 +66,7 @@ const getMember = defineTool({
   title: 'Ver un miembro',
   area: 'miembros',
   kind: 'read',
+  sensitive: true,
   description: `Perfil completo de un miembro, datos de contacto incluidos: puestos, stack, lenguajes, insignias, a qué eventos fue y cuánto participó. ${UNTRUSTED_NOTE}`,
   input: z.object({ id: idArg }),
   handler: async ({ id }) => {

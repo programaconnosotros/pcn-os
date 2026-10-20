@@ -74,6 +74,7 @@ const createAnnouncementTool = defineTool({
   title: 'Crear un anuncio',
   area: 'anuncios',
   kind: 'write',
+  notifies: true,
   description:
     'Publica un anuncio en /anuncios (o lo deja como borrador con published=false). Si es de un evento y se publica, les avisa a sus inscriptos.',
   input: z.object({
@@ -97,6 +98,7 @@ const updateAnnouncementTool = defineTool({
   title: 'Editar un anuncio',
   area: 'anuncios',
   kind: 'write',
+  notifies: true,
   description:
     'Cambia los campos que le pases de un anuncio (por ejemplo published=true para publicar un borrador); el resto queda igual.',
   input: z.object({ id: idArg, ...z.object(announcementFields).partial().shape }),

@@ -48,10 +48,34 @@ export const corsPreflight = () =>
 export const disabledResponse = () =>
   new Response('Not found', { status: 404, headers: NO_STORE_HEADERS });
 
+/**
+ * The request body as text, or null past `maxBytes`: refused up front by Content-Length, and
+ * counted while reading so a body without one (chunked) can't be bigger either.
+ */
+export const readBodyText = async (request: Request, maxBytes = 16 * 1024) => {
+  const declared = Number(request.headers.get('content-length') ?? 0);
+  if (declared > maxBytes) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+};
+
 /** Reads a form-encoded (or JSON) request body into plain strings, with a size cap. */
 export const readParams = async (request: Request, maxBytes = 16 * 1024) => {
-  const text = await request.text();
-  if (text.length > maxBytes) return null;
+  const text = await readBodyText(request, maxBytes);
+  if (text === null) return null;
   const type = request.headers.get('content-type') ?? '';
   if (type.includes('application/json')) {
     try {

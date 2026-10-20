@@ -1,15 +1,22 @@
 import prisma from '@/lib/prisma';
 import { resetRateLimits } from '@/lib/rate-limit';
 import { actAs } from '@/test/db/fixtures';
-import { quickUser } from '@/test/db/actions-fixtures';
+import { quickUser, uid } from '@/test/db/actions-fixtures';
 import { approveAuthorization } from '@/actions/oauth/approve-authorization';
 import { revokeAllMcpConnections, revokeMcpConnection } from '@/actions/oauth/mcp-connections';
 import { listMcpConnections } from './connections';
 import { POST as register } from '@/app/oauth/register/route';
 import { POST as token } from '@/app/oauth/token/route';
 import { POST as revoke } from '@/app/oauth/revoke/route';
+import { generateTotpSecret, hashRecoveryCode, timeStep, totpAt } from '@/lib/totp';
+import { encryptTwoFactorSecret } from '@/lib/two-factor-crypto';
 import { hashSecret, newSecret, pkceChallengeFor } from './crypto';
-import { revokeUserOAuthTokens, verifyAccessToken } from './tokens';
+import {
+  purgeDeadOAuthRows,
+  resetOAuthPurge,
+  revokeUserOAuthAccess,
+  verifyAccessToken,
+} from './tokens';
 
 // The whole OAuth flow of the MCP server against real Postgres: a client registers, an admin
 // approves, the client trades the code and rotates its tokens, and every way of misusing a code
@@ -41,13 +48,31 @@ const form = (path: string, body: Record<string, string>) =>
     body: new URLSearchParams(body).toString(),
   });
 
+// Recovery codes left for each test admin: approving a connection spends one, like at sign-in.
+const recoveryCodes = new Map<string, string[]>();
+const totpSecrets = new Map<string, string>();
+
+/** An admin with 2FA on: a real TOTP secret and a stack of recovery codes. */
 const mcpAdmin = async () => {
   const admin = await quickUser({ role: 'ADMIN' });
+  const codes = Array.from({ length: 20 }, (_, i) => `rc-${uid()}-${i}`);
+  const secret = generateTotpSecret();
+  recoveryCodes.set(admin.id, codes);
+  totpSecrets.set(admin.id, secret);
   return prisma.user.update({
     where: { id: admin.id },
-    data: { twoFactorEnabledAt: new Date(), twoFactorSecret: 'secret' },
+    data: {
+      twoFactorEnabledAt: new Date(),
+      twoFactorSecret: encryptTwoFactorSecret(secret, admin.id),
+      twoFactorRecoveryCodes: codes.map(hashRecoveryCode),
+    },
   });
 };
+
+const nextCode = (userId: string) => recoveryCodes.get(userId)?.shift() ?? 'no-code';
+
+const approve = (userId: string, query: Record<string, string>, code = nextCode(userId)) =>
+  approveAuthorization({ query, code });
 
 const registerClient = async (redirectUris = [REDIRECT], ip?: string) => {
   const response = await register(
@@ -76,7 +101,7 @@ const approvedCode = async (userId: string) => {
   const { body: client } = await registerClient();
   const verifier = newSecret();
   await actAs(userId);
-  const result = await approveAuthorization(authorizeQuery(client.client_id, verifier));
+  const result = await approve(userId, authorizeQuery(client.client_id, verifier));
   if (!result.ok) throw new Error(result.error);
   const redirect = new URL(result.redirectTo);
   return { clientId: client.client_id as string, verifier, redirect };
@@ -125,14 +150,60 @@ describe('client registration', () => {
     expect(body.error).toBe('invalid_redirect_uri');
   });
 
-  it('refuses confidential clients', async () => {
+  it('answers a client that asks for a secret with a public registration', async () => {
     const response = await register(
       json('/oauth/register', {
+        client_name: `Otro ${uid()}`,
         redirect_uris: [REDIRECT],
-        token_endpoint_auth_method: 'client_secret_basic',
+        token_endpoint_auth_method: 'client_secret_post',
+        grant_types: ['authorization_code', 'refresh_token', 'client_credentials'],
       }),
     );
-    expect((await response.json()).error).toBe('invalid_client_metadata');
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+    });
+    expect(body).not.toHaveProperty('client_secret');
+  });
+
+  it('gives the same app registering again the same client', async () => {
+    const name = `Claude ${uid()}`;
+    const first = await (
+      await register(json('/oauth/register', { client_name: name, redirect_uris: [REDIRECT] }))
+    ).json();
+    const second = await (
+      await register(json('/oauth/register', { client_name: name, redirect_uris: [REDIRECT] }))
+    ).json();
+    expect(second.client_id).toBe(first.client_id);
+  });
+
+  it("doesn't count claude.ai's registrations per IP", async () => {
+    // claude.ai registers from its own servers: one IP for every claude.ai user.
+    const ip = randomIp();
+    const statuses = [];
+    for (let i = 0; i < 12; i++) {
+      const response = await register(
+        json(
+          '/oauth/register',
+          {
+            client_name: `Claude ${uid()}`,
+            redirect_uris: ['https://claude.ai/api/mcp/auth_callback'],
+          },
+          ip,
+        ),
+      );
+      statuses.push(response.status);
+    }
+    expect(statuses.every((status) => status === 201)).toBe(true);
+  });
+
+  it('refuses bodies over the size cap', async () => {
+    const response = await register(
+      json('/oauth/register', { client_name: 'x'.repeat(20_000), redirect_uris: [REDIRECT] }),
+    );
+    expect(response.status).toBe(400);
   });
 
   it('strips control characters from the client name', async () => {
@@ -146,7 +217,13 @@ describe('client registration', () => {
     const statuses = [];
     const ip = randomIp();
     for (let i = 0; i < 11; i++)
-      statuses.push((await registerClient([REDIRECT], ip)).response.status);
+      statuses.push(
+        (
+          await register(
+            json('/oauth/register', { client_name: `CC ${uid()}`, redirect_uris: [REDIRECT] }, ip),
+          )
+        ).status,
+      );
     expect(statuses.at(-1)).toBe(429);
   });
 });
@@ -158,14 +235,44 @@ describe('consent', () => {
 
     const member = await quickUser();
     await actAs(member.id);
-    expect(await approveAuthorization(query)).toEqual({ ok: false, error: 'No autorizado' });
+    expect(await approve(member.id, query, '123456')).toEqual({
+      ok: false,
+      error: 'No autorizado',
+    });
 
     const adminWithout2fa = await quickUser({ role: 'ADMIN' });
     await actAs(adminWithout2fa.id);
-    expect(await approveAuthorization(query)).toEqual({ ok: false, error: 'No autorizado' });
+    expect(await approve(adminWithout2fa.id, query, '123456')).toEqual({
+      ok: false,
+      error: 'No autorizado',
+    });
 
     await actAs();
-    expect(await approveAuthorization(query)).toEqual({ ok: false, error: 'No autorizado' });
+    expect(await approve('nobody', query, '123456')).toEqual({ ok: false, error: 'No autorizado' });
+  });
+
+  it('asks for a fresh second-factor code, and spends it', async () => {
+    const admin = await mcpAdmin();
+    const { body: client } = await registerClient();
+    const query = authorizeQuery(client.client_id, newSecret());
+    await actAs(admin.id);
+
+    expect(await approve(admin.id, query, '')).toMatchObject({ ok: false });
+    expect(await approve(admin.id, query, '000000')).toEqual({
+      ok: false,
+      error: 'El código no es válido.',
+    });
+    expect(await approve(admin.id, query, 'not-a-recovery-code')).toMatchObject({ ok: false });
+
+    // A code from the authenticator app works once.
+    const totp = totpAt(totpSecrets.get(admin.id)!, timeStep());
+    expect((await approve(admin.id, query, totp)).ok).toBe(true);
+    expect(await approve(admin.id, query, totp)).toMatchObject({ ok: false });
+
+    // So does each recovery code.
+    const recovery = nextCode(admin.id);
+    expect((await approve(admin.id, query, recovery)).ok).toBe(true);
+    expect(await approve(admin.id, query, recovery)).toMatchObject({ ok: false });
   });
 
   it('rejects a request with the plain PKCE method or a foreign resource', async () => {
@@ -178,7 +285,7 @@ describe('consent', () => {
       { resource: 'https://evil.example/api/mcp' },
       { redirect_uri: 'https://claude.ai/api/mcp/auth_callback' },
     ]) {
-      const result = await approveAuthorization(authorizeQuery(client.client_id, verifier, extra));
+      const result = await approve(admin.id, authorizeQuery(client.client_id, verifier, extra));
       expect(result.ok).toBe(false);
     }
   });
@@ -336,7 +443,7 @@ describe('losing access', () => {
 
   it('revokes every connection of a user', async () => {
     const { admin, tokens } = await connect();
-    await revokeUserOAuthTokens(admin.id);
+    await prisma.$transaction(revokeUserOAuthAccess(admin.id));
     expect(await verifyAccessToken(tokens.access_token, RESOURCE)).toBeNull();
   });
 
@@ -395,5 +502,74 @@ describe('/admin/conexiones-mcp', () => {
     await actAs(admin.id);
     await revokeAllMcpConnections();
     expect(await verifyAccessToken(otherTokens.access_token, RESOURCE)).toBeNull();
+  });
+});
+
+describe('cleanup and revocation of pending codes', () => {
+  it('kills codes approved but not exchanged when access is revoked', async () => {
+    const admin = await mcpAdmin();
+    const { clientId, verifier, redirect } = await approvedCode(admin.id);
+    await prisma.$transaction(revokeUserOAuthAccess(admin.id));
+    const response = await exchange(clientId, redirect.searchParams.get('code')!, verifier);
+    expect((await response.json()).error).toBe('invalid_grant');
+  });
+
+  it('purges dead rows at most once an hour', async () => {
+    const admin = await mcpAdmin();
+    const client = await prisma.oAuthClient.create({
+      data: {
+        name: 'Viejo',
+        redirectUris: [REDIRECT],
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    });
+    const dead = await prisma.oAuthToken.create({
+      data: {
+        accessTokenHash: hashSecret(newSecret()),
+        refreshTokenHash: hashSecret(newSecret()),
+        familyId: crypto.randomUUID(),
+        clientId: (await registerClient()).body.client_id,
+        userId: admin.id,
+        resource: RESOURCE,
+        accessExpiresAt: new Date(Date.now() - 2000),
+        refreshExpiresAt: new Date(Date.now() - 1000),
+      },
+    });
+    resetOAuthPurge();
+    expect(await purgeDeadOAuthRows()).toBe(true);
+    expect(await prisma.oAuthToken.findUnique({ where: { id: dead.id } })).toBeNull();
+    expect(await prisma.oAuthClient.findUnique({ where: { id: client.id } })).toBeNull();
+    expect(await purgeDeadOAuthRows()).toBe(false);
+  });
+});
+
+describe('concurrency', () => {
+  it('revokes everything when the same refresh token is used twice at once', async () => {
+    const admin = await mcpAdmin();
+    const { clientId, verifier, redirect } = await approvedCode(admin.id);
+    const tokens = await (
+      await exchange(clientId, redirect.searchParams.get('code')!, verifier)
+    ).json();
+    const results = await Promise.all([
+      refresh(clientId, tokens.refresh_token).then((r) => r.json()),
+      refresh(clientId, tokens.refresh_token).then((r) => r.json()),
+    ]);
+    const winner = results.find((result) => result.access_token);
+    expect(results.filter((result) => result.error === 'invalid_grant')).toHaveLength(1);
+    // The pair the winner got is revoked too: nobody keeps a working token.
+    expect(await verifyAccessToken(winner.access_token, RESOURCE)).toBeNull();
+  });
+
+  it('lets only one of two concurrent exchanges of a code through, and revokes it', async () => {
+    const admin = await mcpAdmin();
+    const { clientId, verifier, redirect } = await approvedCode(admin.id);
+    const code = redirect.searchParams.get('code')!;
+    const results = await Promise.all([
+      exchange(clientId, code, verifier).then((r) => r.json()),
+      exchange(clientId, code, verifier).then((r) => r.json()),
+    ]);
+    const winner = results.find((result) => result.access_token);
+    expect(results.filter((result) => result.error === 'invalid_grant')).toHaveLength(1);
+    expect(await verifyAccessToken(winner.access_token, RESOURCE)).toBeNull();
   });
 });

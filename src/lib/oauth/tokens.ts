@@ -7,6 +7,9 @@ import { auditMcp } from './audit';
 import { MCP_USER_SELECT, canUseMcp } from './eligibility';
 import { matchesRegisteredRedirect } from './redirect-uris';
 
+// The client or a transaction of it (what `$transaction(async (tx) => …)` hands over).
+type Db = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'>;
+
 export type TokenResponse = {
   access_token: string;
   token_type: 'Bearer';
@@ -25,33 +28,46 @@ const failure = (description: string, error: GrantError = 'invalid_grant') =>
   ({ ok: false, error, description }) as const;
 
 /** Revokes every token of a connection (all the rotations of one authorization). */
-export const revokeFamily = (familyId: string) =>
-  prisma.oAuthToken.updateMany({
+export const revokeFamily = (familyId: string, db: Db = prisma) =>
+  db.oAuthToken.updateMany({
     where: { familyId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
 
 /**
- * Revokes every MCP connection of a user. Called when they stop being allowed to use it (demoted,
- * suspended, deactivated) or their credentials change (password, 2FA), so a token issued before
- * doesn't outlive the reason it was granted.
+ * Everything that gives a user access to the MCP: their tokens and the codes they approved but
+ * nobody exchanged yet. Called when they stop being allowed to use it (demoted, suspended,
+ * deactivated) or their credentials change (password, 2FA), so nothing issued before outlives the
+ * reason it was granted. Returns the queries so callers can put them in their own transaction.
  */
-export const revokeUserOAuthTokens = (userId: string) =>
-  prisma.oAuthToken.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+export const revokeUserOAuthAccess = (userId: string) => {
+  const now = new Date();
+  return [
+    prisma.oAuthToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } }),
+    prisma.oAuthAuthorizationCode.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: now },
+    }),
+  ];
+};
 
-const issueTokens = async (input: {
-  userId: string;
-  clientId: string;
-  resource: string;
-  familyId: string;
-}): Promise<TokenResponse> => {
+/** Every connection and pending code, for everyone: the button for a suspected leak. */
+export const revokeAllOAuthAccess = () => {
+  const now = new Date();
+  return prisma.$transaction([
+    prisma.oAuthToken.updateMany({ where: { revokedAt: null }, data: { revokedAt: now } }),
+    prisma.oAuthAuthorizationCode.updateMany({ where: { usedAt: null }, data: { usedAt: now } }),
+  ]);
+};
+
+const issueTokens = async (
+  db: Db,
+  input: { userId: string; clientId: string; resource: string; familyId: string },
+): Promise<TokenResponse> => {
   const accessToken = newSecret();
   const refreshToken = newSecret();
   const now = Date.now();
-  await prisma.oAuthToken.create({
+  await db.oAuthToken.create({
     data: {
       ...input,
       accessTokenHash: hashSecret(accessToken),
@@ -69,6 +85,9 @@ const issueTokens = async (input: {
   };
 };
 
+const eligibleUser = async (db: Db, userId: string) =>
+  canUseMcp(await db.user.findUnique({ where: { id: userId }, select: MCP_USER_SELECT }));
+
 type CodeExchange = {
   code: unknown;
   codeVerifier: unknown;
@@ -77,81 +96,130 @@ type CodeExchange = {
   resource?: unknown;
 };
 
+type ExchangeOutcome =
+  | { kind: 'issued'; tokens: TokenResponse; userId: string; clientId: string; familyId: string }
+  | { kind: 'replayed'; userId: string; clientId: string }
+  | { kind: 'rejected'; result: GrantResult };
+
 /**
- * `grant_type=authorization_code`: trades a code for the first token pair. The code is burned
- * before anything else is checked, so two concurrent requests can't both use it; a code used
- * twice revokes what it issued the first time (RFC 6749 §4.1.2: someone intercepted it).
+ * `grant_type=authorization_code`: trades a code for the first token pair. The code's row is
+ * locked for the whole exchange, so a concurrent request with the same code waits, then finds it
+ * used and revokes what the first one issued (RFC 6749 §4.1.2: someone intercepted it). A code is
+ * burned before anything else is checked, so a failed attempt can't be retried.
  */
 export const exchangeAuthorizationCode = async (input: CodeExchange): Promise<GrantResult> => {
   if (typeof input.code !== 'string' || input.code.length > 200) return failure('Código inválido');
   const id = hashSecret(input.code);
-  const code = await prisma.oAuthAuthorizationCode.findUnique({
-    where: { id },
-    include: { client: { select: { redirectUris: true } } },
-  });
-  if (!code) return failure('Código inválido');
 
-  const burned = await prisma.oAuthAuthorizationCode.updateMany({
-    where: { id, usedAt: null },
-    data: { usedAt: new Date() },
-  });
-  if (burned.count === 0) {
-    if (code.familyId) await revokeFamily(code.familyId);
-    await auditMcp('authorization code replayed; its tokens were revoked', {
+  const outcome = await prisma.$transaction(async (tx): Promise<ExchangeOutcome | null> => {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "OAuthAuthorizationCode" WHERE "id" = ${id} FOR UPDATE`;
+    if (locked.length === 0) return null;
+    const code = await tx.oAuthAuthorizationCode.findUniqueOrThrow({
+      where: { id },
+      include: { client: { select: { redirectUris: true } } },
+    });
+    const reject = (description: string, error: GrantError = 'invalid_grant') =>
+      ({ kind: 'rejected', result: failure(description, error) }) as const;
+
+    if (code.usedAt) {
+      if (code.familyId) await revokeFamily(code.familyId, tx);
+      return { kind: 'replayed', userId: code.userId, clientId: code.clientId };
+    }
+    await tx.oAuthAuthorizationCode.update({ where: { id }, data: { usedAt: new Date() } });
+
+    if (code.expiresAt <= new Date()) return reject('El código venció');
+    if (input.clientId !== code.clientId) return reject('El código es de otro cliente');
+    // The redirect_uri must be the very one the code was sent to (RFC 6749 §4.1.3).
+    if (input.redirectUri !== code.redirectUri) return reject('redirect_uri distinto');
+    if (!matchesRegisteredRedirect(code.client.redirectUris, input.redirectUri))
+      return reject('redirect_uri no registrado');
+    if (!verifyPkce(input.codeVerifier, code.codeChallenge)) return reject('PKCE inválido');
+    if (input.resource !== undefined && input.resource !== code.resource)
+      return reject('El recurso no coincide', 'invalid_target');
+    if (!(await eligibleUser(tx, code.userId))) return reject('La cuenta ya no puede usar el MCP');
+
+    const familyId = randomUUID();
+    await tx.oAuthAuthorizationCode.update({ where: { id }, data: { familyId } });
+    const tokens = await issueTokens(tx, {
       userId: code.userId,
-      metadata: { clientId: code.clientId },
+      clientId: code.clientId,
+      resource: code.resource,
+      familyId,
+    });
+    return { kind: 'issued', tokens, userId: code.userId, clientId: code.clientId, familyId };
+  });
+
+  if (!outcome) return failure('Código inválido');
+  if (outcome.kind === 'rejected') return outcome.result;
+  if (outcome.kind === 'replayed') {
+    await auditMcp('authorization code replayed; its tokens were revoked', {
+      userId: outcome.userId,
+      metadata: { clientId: outcome.clientId },
     });
     return failure('El código ya se usó');
   }
-
-  if (code.expiresAt <= new Date()) return failure('El código venció');
-  if (input.clientId !== code.clientId) return failure('El código es de otro cliente');
-  // The redirect_uri must be the very one the code was sent to (RFC 6749 §4.1.3).
-  if (input.redirectUri !== code.redirectUri) return failure('redirect_uri distinto');
-  if (!matchesRegisteredRedirect(code.client.redirectUris, input.redirectUri))
-    return failure('redirect_uri no registrado');
-  if (!verifyPkce(input.codeVerifier, code.codeChallenge)) return failure('PKCE inválido');
-  if (input.resource !== undefined && input.resource !== code.resource)
-    return failure('El recurso no coincide', 'invalid_target');
-
-  const user = await prisma.user.findUnique({
-    where: { id: code.userId },
-    select: MCP_USER_SELECT,
-  });
-  if (!canUseMcp(user)) return failure('La cuenta ya no puede usar el MCP');
-
-  const familyId = randomUUID();
-  await prisma.oAuthAuthorizationCode.update({ where: { id }, data: { familyId } });
-  const tokens = await issueTokens({
-    userId: code.userId,
-    clientId: code.clientId,
-    resource: code.resource,
-    familyId,
-  });
   await auditMcp('tokens issued', {
-    userId: code.userId,
-    metadata: { clientId: code.clientId, familyId },
+    userId: outcome.userId,
+    metadata: { clientId: outcome.clientId, familyId: outcome.familyId },
   });
-  return { ok: true, tokens, userId: code.userId };
+  return { ok: true, tokens: outcome.tokens, userId: outcome.userId };
 };
 
 type Refresh = { refreshToken: unknown; clientId: unknown; resource?: unknown };
 
+type RefreshOutcome =
+  | { kind: 'issued'; tokens: TokenResponse }
+  | { kind: 'reused' }
+  | { kind: 'rejected'; result: GrantResult };
+
 /**
- * `grant_type=refresh_token`: rotates the pair. The old pair is revoked as it's used; if a
- * rotated refresh token shows up again, two parties have it (the client and whoever copied it),
- * so the whole connection is revoked and the admins are told.
+ * `grant_type=refresh_token`: rotates the pair. The row is locked while it rotates, so two
+ * requests with the same refresh token are serialized: the second one finds it already rotated,
+ * which means two parties hold it (the client and whoever copied it), and revokes the whole
+ * connection, the pair the first request just got included. The admins are told.
  */
 export const refreshTokens = async (input: Refresh): Promise<GrantResult> => {
   if (typeof input.refreshToken !== 'string' || input.refreshToken.length > 200)
     return failure('Refresh token inválido');
   const current = await prisma.oAuthToken.findUnique({
     where: { refreshTokenHash: hashSecret(input.refreshToken) },
+    select: { id: true, clientId: true, userId: true, familyId: true },
   });
   if (!current || current.clientId !== input.clientId) return failure('Refresh token inválido');
 
-  const reuse = async () => {
-    await revokeFamily(current.familyId);
+  const outcome = await prisma.$transaction(async (tx): Promise<RefreshOutcome> => {
+    await tx.$queryRaw`SELECT "id" FROM "OAuthToken" WHERE "id" = ${current.id} FOR UPDATE`;
+    const row = await tx.oAuthToken.findUniqueOrThrow({ where: { id: current.id } });
+    const reject = (description: string, error: GrantError = 'invalid_grant') =>
+      ({ kind: 'rejected', result: failure(description, error) }) as const;
+
+    if (row.rotatedAt) {
+      await revokeFamily(row.familyId, tx);
+      return { kind: 'reused' };
+    }
+    if (row.revokedAt) return reject('La conexión fue revocada');
+    if (row.refreshExpiresAt <= new Date()) return reject('El refresh token venció');
+    if (input.resource !== undefined && input.resource !== row.resource)
+      return reject('El recurso no coincide', 'invalid_target');
+    if (!(await eligibleUser(tx, row.userId))) {
+      await revokeFamily(row.familyId, tx);
+      return reject('La cuenta ya no puede usar el MCP');
+    }
+
+    const now = new Date();
+    await tx.oAuthToken.update({ where: { id: row.id }, data: { rotatedAt: now, revokedAt: now } });
+    const tokens = await issueTokens(tx, {
+      userId: row.userId,
+      clientId: row.clientId,
+      resource: row.resource,
+      familyId: row.familyId,
+    });
+    return { kind: 'issued', tokens };
+  });
+
+  if (outcome.kind === 'rejected') return outcome.result;
+  if (outcome.kind === 'reused') {
     await auditMcp('rotated refresh token reused; connection revoked', {
       userId: current.userId,
       metadata: { clientId: current.clientId, familyId: current.familyId },
@@ -164,37 +232,8 @@ export const refreshTokens = async (input: Refresh): Promise<GrantResult> => {
       metadata: { familyId: current.familyId, userId: current.userId },
     });
     return failure('Refresh token inválido');
-  };
-
-  if (current.rotatedAt) return reuse();
-  if (current.revokedAt) return failure('La conexión fue revocada');
-  if (current.refreshExpiresAt <= new Date()) return failure('El refresh token venció');
-  if (input.resource !== undefined && input.resource !== current.resource)
-    return failure('El recurso no coincide', 'invalid_target');
-
-  const now = new Date();
-  const rotated = await prisma.oAuthToken.updateMany({
-    where: { id: current.id, rotatedAt: null, revokedAt: null },
-    data: { rotatedAt: now, revokedAt: now },
-  });
-  if (rotated.count === 0) return reuse();
-
-  const user = await prisma.user.findUnique({
-    where: { id: current.userId },
-    select: MCP_USER_SELECT,
-  });
-  if (!canUseMcp(user)) {
-    await revokeFamily(current.familyId);
-    return failure('La cuenta ya no puede usar el MCP');
   }
-
-  const tokens = await issueTokens({
-    userId: current.userId,
-    clientId: current.clientId,
-    resource: current.resource,
-    familyId: current.familyId,
-  });
-  return { ok: true, tokens, userId: current.userId };
+  return { ok: true, tokens: outcome.tokens, userId: current.userId };
 };
 
 /**
@@ -253,4 +292,45 @@ export const verifyAccessToken = async (
     userId: row.userId,
     expiresAt: row.accessExpiresAt,
   };
+};
+
+const PURGE_INTERVAL_MS = 60 * 60 * 1000;
+const KEEP_DEAD_ROWS_MS = 30 * 24 * 60 * 60 * 1000;
+let lastPurge = 0;
+
+/**
+ * Deletes what can never be used again: tokens whose refresh expired or that were revoked a month
+ * ago, codes that expired a day ago and registrations nobody approved within an hour. Runs at
+ * most once an hour, from the OAuth endpoints (the site has no job scheduler).
+ */
+export const purgeDeadOAuthRows = async (now = Date.now()) => {
+  if (now - lastPurge < PURGE_INTERVAL_MS) return false;
+  lastPurge = now;
+  const monthAgo = new Date(now - KEEP_DEAD_ROWS_MS);
+  try {
+    await prisma.$transaction([
+      prisma.oAuthToken.deleteMany({
+        where: {
+          OR: [{ refreshExpiresAt: { lt: new Date(now) } }, { revokedAt: { lt: monthAgo } }],
+        },
+      }),
+      prisma.oAuthAuthorizationCode.deleteMany({
+        where: { expiresAt: { lt: new Date(now - 24 * 60 * 60 * 1000) } },
+      }),
+      prisma.oAuthClient.deleteMany({
+        where: {
+          createdAt: { lt: new Date(now - 60 * 60 * 1000) },
+          tokens: { none: {} },
+          codes: { none: {} },
+        },
+      }),
+    ]);
+  } catch (error) {
+    console.error('Failed to purge OAuth rows:', error instanceof Error ? error.message : error);
+  }
+  return true;
+};
+
+export const resetOAuthPurge = () => {
+  lastPurge = 0;
 };

@@ -16,7 +16,7 @@ export const mcpConnect = [
   {
     term: 'Quién puede',
     detail:
-      'Solo admins con la verificación en dos pasos activada: da acceso a todos los datos, privados incluidos. Las conexiones activas se ven y se revocan en /admin/conexiones-mcp.',
+      'Solo admins con la verificación en dos pasos activada, que además escriben un código de su app al aprobar: da acceso a todos los datos, privados incluidos. Las conexiones activas se ven y se revocan en /admin/conexiones-mcp.',
   },
 ];
 
@@ -24,7 +24,7 @@ export const mcpSecurity = [
   {
     term: 'OAuth 2.1',
     detail:
-      'Registro dinámico de clientes públicos, PKCE S256 obligatorio, códigos de un solo uso por 5 minutos, access tokens de 1 hora y refresh tokens que rotan: si vuelve uno ya rotado, se revoca la conexión entera.',
+      'Registro dinámico de clientes públicos, PKCE S256 obligatorio, códigos de un solo uso por 5 minutos, access tokens de 1 hora y refresh tokens que rotan dentro de una transacción con la fila bloqueada: si vuelve uno ya rotado, aunque sea en paralelo, se revoca la conexión entera.',
   },
   {
     term: 'Redirects en allowlist',
@@ -49,7 +49,7 @@ export const mcpSecurity = [
   {
     term: 'Defensa en profundidad',
     detail:
-      'Rate limits por IP y por conexión, Origin validado contra DNS rebinding, consentimiento que no se puede embeber, no-store en todo, auditoría en AppLog y un kill switch (MCP_ENABLED=false).',
+      'Rate limits por IP y por conexión (con topes propios para escrituras y para lo que avisa a la comunidad), Origin validado contra DNS rebinding, consentimiento que no se puede embeber, no-store en todo, auditoría en AppLog de escrituras y lecturas de datos privados, y un kill switch (MCP_ENABLED=false).',
   },
 ];
 

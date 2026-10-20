@@ -169,6 +169,7 @@ const getEventRegistrations = defineTool({
   title: 'Inscriptos de un evento',
   area: 'eventos',
   kind: 'read',
+  sensitive: true,
   description:
     'Quiénes se anotaron a un evento y quiénes esperan lugar, con email y teléfono. Datos privados: usalos solo para lo que se pidió.',
   input: z.object({
@@ -208,6 +209,7 @@ const createEvent = defineTool({
   title: 'Crear un evento',
   area: 'eventos',
   kind: 'write',
+  notifies: true,
   description:
     'Crea un evento, con vos como organizador. Si es a futuro, AVISA A TODA LA COMUNIDAD (notificación y email a cada miembro): confirmá los datos con quien lo pidió antes de llamarla. Un evento presencial necesita ciudad, lugar y dirección.',
   input: z.object(eventFields),
@@ -222,6 +224,7 @@ const updateEvent = defineTool({
   title: 'Editar un evento',
   area: 'eventos',
   kind: 'write',
+  notifies: true,
   description:
     'Cambia los campos que le pases de un evento; el resto queda igual. Si cambia la fecha o el lugar de un evento futuro, les avisa a los inscriptos. `sponsors`, si viene, reemplaza la lista entera.',
   input: z.object({ id: idArg, ...z.object(eventFields).partial().shape }),

@@ -7,6 +7,7 @@ import { getCurrentSession } from '@/actions/auth/get-current-session';
 import { AuthLinks, AuthShell } from '@/components/auth/auth-shell';
 import { clientIpFrom } from '@/lib/client-ip';
 import { displayName } from '@/lib/people-names';
+import { timeAgo } from '@/lib/forum-utils';
 import { RATE_LIMITS, consumeRateLimit } from '@/lib/rate-limit';
 import { errorRedirect, resolveAuthorizeRequest } from '@/lib/oauth/authorize';
 import { OAUTH_TTL, isMcpEnabled, publicOrigin } from '@/lib/oauth/config';
@@ -93,6 +94,11 @@ export default async function AuthorizePage({ searchParams }: PageProps) {
     return <ErrorScreen title={reason.title} message={reason.message} />;
   }
 
+  // Claude Code registers from the admin's own machine: a loopback client registered from some
+  // other connection is worth a second look.
+  const fromOtherIp =
+    request.client.registeredFromIp !== null && request.client.registeredFromIp !== ip;
+
   const denyUrl = errorRedirect(
     request.params.redirect_uri,
     'access_denied',
@@ -116,7 +122,14 @@ export default async function AuthorizePage({ searchParams }: PageProps) {
       <div className="space-y-6">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-y border-pcnGreen-200 py-3 font-mono text-xs">
           <dt className="text-muted-foreground">vuelve a</dt>
-          <dd className="break-all text-pcnGreen">{request.redirectHost}</dd>
+          <dd className="break-all text-pcnGreen">{request.params.redirect_uri}</dd>
+          <dt className="text-muted-foreground">registrada</dt>
+          <dd>
+            {timeAgo(request.client.createdAt)}
+            {request.loopback && fromOtherIp && (
+              <span className="text-amber-300"> · desde otra conexión que la tuya</span>
+            )}
+          </dd>
           <dt className="text-muted-foreground">dura</dt>
           <dd>
             {OAUTH_TTL.refreshSeconds / 86400} días sin uso; la revocás cuando quieras en{' '}
@@ -142,8 +155,9 @@ export default async function AuthorizePage({ searchParams }: PageProps) {
 
         <p className="flex gap-2 text-xs leading-relaxed text-amber-300/90">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          Permitilo solo si la conexión la acabás de iniciar vos desde Claude y la dirección de
-          arriba es la que esperás (claude.ai, o localhost para Claude Code).
+          {request.loopback
+            ? 'Permitilo solo si recién corriste Claude Code (o el inspector de MCP) en esta computadora: el código va a una app local.'
+            : 'Permitilo solo si la conexión la acabás de iniciar vos desde claude.ai. Si alguien te mandó este link, cancelá: le estarías dando tu acceso.'}
         </p>
 
         <ConsentForm query={plainQuery} denyUrl={denyUrl} />

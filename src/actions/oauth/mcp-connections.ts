@@ -3,9 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { requireAdmin } from '@/lib/admin';
-import prisma from '@/lib/prisma';
 import { auditMcp } from '@/lib/oauth/audit';
-import { revokeFamily } from '@/lib/oauth/tokens';
+import { revokeAllOAuthAccess, revokeFamily } from '@/lib/oauth/tokens';
 
 const familySchema = z.uuid();
 
@@ -22,13 +21,13 @@ export async function revokeMcpConnection(familyId: unknown) {
   return { success: true as const };
 }
 
-/** Disconnects every MCP connection at once: the button for a suspected leak. Solo admins. */
+/**
+ * Disconnects every MCP connection at once, pending codes included: the button for a suspected
+ * leak. Solo admins.
+ */
 export async function revokeAllMcpConnections() {
   const admin = await requireAdmin();
-  const { count } = await prisma.oAuthToken.updateMany({
-    where: { revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  const [{ count }] = await revokeAllOAuthAccess();
   await auditMcp('every connection revoked by an admin', {
     userId: admin.id,
     metadata: { tokens: count },

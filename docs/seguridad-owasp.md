@@ -265,7 +265,8 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 categoría:
 
 - **A01:**
-  - Solo admins activos con 2FA, chequeado en cada request.
+  - Solo admins activos con 2FA, chequeado en cada request; aprobar pide un código de 2FA
+    fresco.
   - Cada tool corre como ese admin, a través de las mismas server actions (`runAsUser`).
   - Las conexiones se revocan al degradar, suspender o desactivar a alguien, al resetear su
     contraseña o al apagar su 2FA.
@@ -280,8 +281,9 @@ categoría:
 - **A06:**
   - Los redirect URIs salen de una allowlist (callbacks de Claude y loopback).
   - El `resource` está atado al token (RFC 8707).
-  - El refresh token rota y detecta reuso.
-  - Rate limits por IP y por conexión, y las listas tienen tope de 100.
+  - El refresh token rota y detecta reuso, con la fila bloqueada contra carreras.
+  - Rate limits por IP y por conexión, con topes para escrituras y avisos, y las listas tienen
+    tope de 100.
 - **A07:** códigos de un solo uso que vencen en 5 minutos, access tokens de 1 hora y refresh de 30
   días.
 - **A08:** cada input de tool se valida con zod, y después otra vez con el schema de la action.

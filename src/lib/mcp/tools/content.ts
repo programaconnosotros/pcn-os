@@ -53,6 +53,7 @@ const listTalkProposals = defineTool({
   title: 'Listar propuestas de charlas',
   area: 'charlas',
   kind: 'read',
+  sensitive: true,
   description: `Propuestas de charla que mandaron los miembros a un evento, con su estado y los teléfonos de los oradores para coordinar. ${UNTRUSTED_NOTE}`,
   input: z.object({
     eventId: idArg.optional(),

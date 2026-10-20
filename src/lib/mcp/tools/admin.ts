@@ -74,6 +74,7 @@ const listErrorLogs = defineTool({
   title: 'Errores del sitio',
   area: 'admin',
   kind: 'read',
+  sensitive: true,
   description:
     'Errores que registró el sitio (/monitoreo), del más nuevo al más viejo, con las primeras líneas del stack. Por defecto solo los no resueltos.',
   input: z.object({ includeResolved: z.boolean().default(false), ...page }),

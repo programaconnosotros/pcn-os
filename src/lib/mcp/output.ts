@@ -45,13 +45,33 @@ export type ToolResult = {
   isError?: boolean;
 };
 
+const serialize = (data: unknown) => JSON.stringify(data, null, 2);
+
+/**
+ * A tool's result as JSON text, scrubbed of secrets. A list too big to send is cut by items (it
+ * stays valid JSON and says so); anything else too big is an error asking for less.
+ */
 export const toolJson = (data: unknown): ToolResult => {
   const safe = redactSecrets(data);
-  let text = JSON.stringify(safe, null, 2);
-  if (text.length > MAX_RESULT_CHARS) {
-    text = `${text.slice(0, MAX_RESULT_CHARS)}\n… (resultado cortado: pedí menos con limit/offset)`;
+  let text = serialize(safe);
+  if (text.length <= MAX_RESULT_CHARS) return { content: [{ type: 'text', text }] };
+
+  const list = safe as { items?: unknown[] } | null;
+  if (list && typeof list === 'object' && Array.isArray(list.items)) {
+    let items = list.items;
+    while (items.length > 0) {
+      items = items.slice(0, Math.floor(items.length / 2));
+      text = serialize({
+        ...list,
+        items,
+        count: items.length,
+        hasMore: true,
+        truncated: 'Resultado recortado por tamaño: pedí menos con limit/offset.',
+      });
+      if (text.length <= MAX_RESULT_CHARS) return { content: [{ type: 'text', text }] };
+    }
   }
-  return { content: [{ type: 'text', text }] };
+  return toolError('El resultado es demasiado grande. Pedí menos resultados (limit) o filtrá más.');
 };
 
 export const toolError = (message: string): ToolResult => ({

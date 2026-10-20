@@ -10,7 +10,7 @@ describe('isAllowedRedirectUri', () => {
     'https://claude.com/api/mcp/auth_callback',
     'http://localhost:33418/callback',
     'http://127.0.0.1:6274/oauth/callback',
-    'http://[::1]:8080/cb',
+    'http://[::1]:8080/callback',
     'http://localhost/callback',
   ])('accepts %s', (uri) => {
     expect(isAllowedRedirectUri(uri)).toBe(true);
@@ -37,6 +37,11 @@ describe('isAllowedRedirectUri', () => {
     'http://0x7f000001:3000/callback',
     'http://127.0.0.2:3000/callback',
     'http://xn--localhst-0za.com/callback',
+    // Loopback, but not a callback path
+    'http://localhost:3000/',
+    'http://localhost:3000/api/log',
+    'http://localhost:3000/callback?next=/x',
+    'http://localhost:3000/callback/',
     // Other schemes
     'javascript:alert(1)',
     'data:text/html,hi',
@@ -76,7 +81,9 @@ describe('matchesRegisteredRedirect', () => {
 
   it('lets a loopback URI change only its port', () => {
     expect(matchesRegisteredRedirect(registered, 'http://localhost:51234/callback')).toBe(true);
-    expect(matchesRegisteredRedirect(registered, 'http://localhost:51234/other')).toBe(false);
+    expect(matchesRegisteredRedirect(registered, 'http://localhost:51234/oauth/callback')).toBe(
+      false,
+    );
     expect(matchesRegisteredRedirect(registered, 'http://127.0.0.1:3000/callback')).toBe(false);
     expect(matchesRegisteredRedirect(registered, 'http://localhost:3000/callback?x=1')).toBe(false);
   });

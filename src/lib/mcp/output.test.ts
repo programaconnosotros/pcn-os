@@ -25,10 +25,20 @@ describe('redactSecrets', () => {
 });
 
 describe('toolJson', () => {
-  it('cuts results that are too big', () => {
-    const text = toolJson({ big: 'x'.repeat(300_000) }).content[0].text;
-    expect(text.length).toBeLessThan(201_000);
-    expect(text).toContain('resultado cortado');
+  it('cuts a big list by items and keeps it valid JSON', () => {
+    const items = Array.from({ length: 50 }, (_, i) => ({ i, text: 'x'.repeat(10_000) }));
+    const text = toolJson({ total: 50, offset: 0, count: 50, hasMore: false, items }).content[0]
+      .text;
+    expect(text.length).toBeLessThanOrEqual(200_000);
+    const parsed = JSON.parse(text);
+    expect(parsed).toMatchObject({ total: 50, hasMore: true });
+    expect(parsed.items.length).toBeLessThan(50);
+    expect(parsed.truncated).toContain('limit');
+  });
+
+  it('refuses anything else that is too big', () => {
+    const result = toolJson({ big: 'x'.repeat(300_000) });
+    expect(result.isError).toBe(true);
   });
 });
 

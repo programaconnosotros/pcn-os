@@ -13,6 +13,10 @@ export type McpTool<Shape extends ZodRawShape = ZodRawShape> = {
   kind: ToolKind;
   /** Writes that remove something: clients ask before running them. */
   destructive?: boolean;
+  /** Writes that notify or email members: a tighter rate limit (`mcpNotify`). */
+  notifies?: boolean;
+  /** Reads of private data (contact details, logs): every call is audited. */
+  sensitive?: boolean;
   input: ZodObject<Shape>;
   handler: (_args: z.output<ZodObject<Shape>>, _session: SessionWithUser) => Promise<unknown>;
 };

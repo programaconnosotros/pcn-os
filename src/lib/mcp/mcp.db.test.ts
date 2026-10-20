@@ -366,6 +366,40 @@ describe('tools', () => {
     expect(unused.text).toContain('VIDEO no usa description');
   });
 
+  it('audits reads of private data, but not public reads', async () => {
+    const fresh = await mcpAdmin();
+    const freshToken = await connect(fresh.id);
+    await callTool(freshToken, 'search_members', { query: 'nadie' });
+    await callTool(freshToken, 'list_events', {});
+    const reads = await prisma.appLog.findMany({
+      where: { userId: fresh.id, message: { startsWith: '[mcp] read' } },
+      select: { message: true },
+    });
+    expect(reads.map((row) => row.message)).toEqual(['[mcp] read search_members']);
+  });
+
+  it('caps the writes that notify the community per connection', async () => {
+    const fresh = await mcpAdmin();
+    const freshToken = await connect(fresh.id);
+    const results = [];
+    for (let i = 0; i < 6; i++) {
+      results.push(
+        await callTool(freshToken, 'create_announcement', {
+          title: `Borrador ${i}`,
+          content: 'Un borrador para probar el límite.',
+          category: 'general',
+          published: false,
+        }),
+      );
+    }
+    expect(results.slice(0, 5).every((result) => !result.isError)).toBe(true);
+    expect(results[5]).toMatchObject({ isError: true });
+    expect(results[5].text).toContain('avisos');
+    // Other writes still have their own, wider budget.
+    const other = await callTool(freshToken, 'reject_recommendation', { id: 'no-such-item' });
+    expect(other.text).toBe('Recomendación no encontrada');
+  });
+
   it('rate limits each connection', async () => {
     let status = 200;
     for (let i = 0; i < 301 && status === 200; i++)

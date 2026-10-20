@@ -7,7 +7,7 @@ import {
   oauthJson,
   readParams,
 } from '@/lib/oauth/responses';
-import { exchangeAuthorizationCode, refreshTokens } from '@/lib/oauth/tokens';
+import { exchangeAuthorizationCode, purgeDeadOAuthRows, refreshTokens } from '@/lib/oauth/tokens';
 
 // Token endpoint of the MCP's OAuth server: authorization code + PKCE, and refresh rotation.
 export const dynamic = 'force-dynamic';
@@ -37,8 +37,10 @@ export async function POST(request: Request) {
 
   const params = await readParams(request);
   if (!params) return oauthError('invalid_request', 'Solicitud inválida.');
+  await purgeDeadOAuthRows();
   const clientId = clientIdOf(request, params);
-  if (!clientId) return oauthError('invalid_client', 'Falta el client_id.', 401);
+  // 400, not 401: a 401 would need a Basic challenge, and browsers answer that with a login box.
+  if (!clientId) return oauthError('invalid_client', 'Falta el client_id.');
 
   const result =
     params.grant_type === 'authorization_code'

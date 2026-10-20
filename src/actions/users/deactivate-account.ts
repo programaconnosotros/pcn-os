@@ -153,6 +153,7 @@ export const deactivateAccount = async (input: z.infer<typeof inputSchema>): Pro
     prisma.session.deleteMany({ where }),
     // And off the MCP server, if it was an admin who connected Claude.
     prisma.oAuthToken.deleteMany({ where }),
+    prisma.oAuthAuthorizationCode.deleteMany({ where }),
   ]);
 
   await deleteCurrentSession();

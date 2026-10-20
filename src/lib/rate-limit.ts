@@ -37,11 +37,18 @@ export const RATE_LIMITS = {
   // OAuth server of the MCP (src/lib/oauth), counted per IP: registering clients, opening the
   // consent screen and calling the token endpoint.
   oauthRegister: { limit: 10, windowSeconds: 60 * 60 },
+  // Every registration, from anywhere: claude.ai registers from one shared IP, so its clients
+  // aren't counted per IP (that would let any claude.ai user lock the admins out).
+  oauthRegisterGlobal: { limit: 300, windowSeconds: 60 * 60 },
   oauthAuthorize: { limit: 30, windowSeconds: 10 * 60 },
   oauthToken: { limit: 60, windowSeconds: 10 * 60 },
   // MCP requests per connection (src/app/api/mcp). Admins aren't exempt here: a leaked token
   // shouldn't be able to dump the database at full speed.
   mcp: { limit: 300, windowSeconds: 5 * 60 },
+  // Writes through MCP tools per connection, admins included: an agent misled by text a member
+  // wrote can't flood the site. Tools that notify the whole community get a tighter one.
+  mcpWrite: { limit: 60, windowSeconds: 60 * 60 },
+  mcpNotify: { limit: 5, windowSeconds: 60 * 60 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

@@ -2,7 +2,7 @@ import * as z from 'zod';
 import prisma from '@/lib/prisma';
 import { OAUTH_TTL, mcpResourceUrl } from './config';
 import { PKCE_CHALLENGE, hashSecret, newSecret } from './crypto';
-import { matchesRegisteredRedirect } from './redirect-uris';
+import { isLoopbackRedirectUri, matchesRegisteredRedirect } from './redirect-uris';
 
 /** The query of /oauth/autorizar, as RFC 6749 §4.1.1 + PKCE + RFC 8707 define it. */
 export const authorizeParamsSchema = z.object({
@@ -22,8 +22,10 @@ export type AuthorizeParams = z.infer<typeof authorizeParamsSchema>;
 export type AuthorizeRequest = {
   params: AuthorizeParams;
   resource: string;
-  client: { id: string; name: string };
+  client: { id: string; name: string; createdAt: Date; registeredFromIp: string | null };
   redirectHost: string;
+  /** The code goes to an app on this computer (Claude Code), not to claude.ai. */
+  loopback: boolean;
 };
 
 export type ResolvedAuthorize =
@@ -69,7 +71,7 @@ export const resolveAuthorizeRequest = async (
 
   const client = await prisma.oAuthClient.findUnique({
     where: { id: clientId },
-    select: { id: true, name: true, redirectUris: true },
+    select: { id: true, name: true, redirectUris: true, createdAt: true, registeredFromIp: true },
   });
   if (!client) return { kind: 'fatal', message: 'El cliente no está registrado.' };
   if (!matchesRegisteredRedirect(client.redirectUris, redirectUri))
@@ -98,8 +100,14 @@ export const resolveAuthorizeRequest = async (
     request: {
       params: parsed.data,
       resource,
-      client: { id: client.id, name: client.name },
+      client: {
+        id: client.id,
+        name: client.name,
+        createdAt: client.createdAt,
+        registeredFromIp: client.registeredFromIp,
+      },
       redirectHost: new URL(redirectUri).host,
+      loopback: isLoopbackRedirectUri(redirectUri),
     },
   };
 };
