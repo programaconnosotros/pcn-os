@@ -246,6 +246,10 @@ describe('tools', () => {
       (await callTool(token, 'get_event_registrations', { eventId: event.id })).text,
     );
     expect(registrations.registrations[0].user.email).toBe(member.email);
+
+    // Other test files expect only the forum categories the migration created.
+    await prisma.forumPost.delete({ where: { id: post.id } });
+    await prisma.forumCategory.delete({ where: { id: category.id } });
   });
 
   it('reports a missing row as a tool error, not a crash', async () => {
