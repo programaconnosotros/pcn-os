@@ -35,6 +35,11 @@ describe('fullRowsClassName', () => {
 });
 
 describe('fullRowsHidesSome', () => {
+  it('never hides items of a full list (count 0)', () => {
+    const columns = { base: 1, sm: 2, lg: 3 };
+    for (let index = 0; index < 5; index++) expect(fullRowsClassName(index, 0, columns)).toBe('');
+  });
+
   it('tells whether any breakpoint leaves an item out', () => {
     expect(fullRowsHidesSome(3, { sm: 2, xl: 3 })).toBe(true);
     expect(fullRowsHidesSome(4, { '2xl': 2 })).toBe(false);

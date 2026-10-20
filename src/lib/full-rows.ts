@@ -25,8 +25,12 @@ const HIDDEN: Record<Breakpoint, string> = {
 export const fullRowsCount = (count: number, columns: number) =>
   count < columns ? count : count - (count % columns);
 
-/** Classes for the item at `index` of `count`, hiding it where it would start a partial row. */
+/**
+ * Classes for the item at `index` of `count`, hiding it where it would start a partial row. An
+ * item outside `count` isn't part of a capped preview (a full list passes 0): it always shows.
+ */
 export const fullRowsClassName = (index: number, count: number, columns: Columns) => {
+  if (index >= count) return '';
   let current = 1;
   return BREAKPOINTS.flatMap((breakpoint) => {
     current = columns[breakpoint] ?? current;
