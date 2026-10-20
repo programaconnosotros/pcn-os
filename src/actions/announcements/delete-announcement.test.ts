@@ -55,9 +55,7 @@ describe('deleteAnnouncement', () => {
     mockCookies({ sessionId: 'session-admin' });
     prismaMock.session.findUnique.mockResolvedValue(null);
 
-    await expect(deleteAnnouncement('ann-1')).rejects.toThrow(
-      'No tienes permisos para eliminar anuncios',
-    );
+    await expect(deleteAnnouncement('ann-1')).rejects.toThrow('No autorizado');
     expect(prismaMock.announcement.delete).not.toHaveBeenCalled();
   });
 

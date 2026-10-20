@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/admin';
+import { revokeUserOAuthTokens } from '@/lib/oauth/tokens';
 
 const inputSchema = z.object({ userId: z.string().min(1).max(100), suspended: z.boolean() });
 
@@ -34,7 +35,9 @@ export const setSuspended = async (userId: string, suspended: boolean) => {
       where: { id: user.id },
       data: { suspendedAt: input.suspended ? new Date() : null },
     }),
-    ...(input.suspended ? [prisma.session.deleteMany({ where: { userId: user.id } })] : []),
+    ...(input.suspended
+      ? [prisma.session.deleteMany({ where: { userId: user.id } }), revokeUserOAuthTokens(user.id)]
+      : []),
   ]);
 
   revalidatePath('/usuarios');

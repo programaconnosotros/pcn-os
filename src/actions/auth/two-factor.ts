@@ -23,6 +23,7 @@ import {
   verifyTotp,
 } from '@/lib/totp';
 import { decryptTwoFactorSecret, encryptTwoFactorSecret } from '@/lib/two-factor-crypto';
+import { revokeUserOAuthTokens } from '@/lib/oauth/tokens';
 
 const codeSchema = z.string().trim().min(1, 'Ingresá el código').max(20);
 
@@ -145,6 +146,8 @@ export async function disableTwoFactor(code: string) {
     }));
   if (!turnedOff) throw new Error('El código no es válido');
   await prisma.twoFactorChallenge.deleteMany({ where: { userId: user.id } });
+  // The MCP requires 2FA (src/lib/oauth/eligibility.ts): its connections go with it.
+  await revokeUserOAuthTokens(user.id);
 }
 
 /** New recovery codes (the old ones stop working), with a code from the app. */

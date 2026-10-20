@@ -81,7 +81,7 @@ describe('createEvent', () => {
     mockCookies({ sessionId: 'ghost-session' });
     prismaMock.session.findUnique.mockResolvedValue(null);
 
-    await expect(createEvent(validEventData)).rejects.toThrow('Sesión no encontrada');
+    await expect(createEvent(validEventData)).rejects.toThrow('Usuario no autenticado');
 
     expect(prismaMock.event.create).not.toHaveBeenCalled();
   });
