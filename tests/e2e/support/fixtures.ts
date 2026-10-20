@@ -41,6 +41,21 @@ export const test = base.extend<Fixtures>({
   extraHTTPHeaders: async ({ extraHTTPHeaders, clientIp }, use) => {
     await use({ ...extraHTTPHeaders, 'x-forwarded-for': clientIp });
   },
+  // extraHTTPHeaders goes out with every request, third-party ones included: a YouTube embed then
+  // sends `x-forwarded-for` on its own CORS requests (fonts), they fail, and its FontFace throws
+  // "A network error occurred." in the page now and then. Only the site gets the header.
+  context: async ({ context, baseURL }, use) => {
+    const site = new URL(baseURL!).origin;
+    await context.route(
+      (url) => url.origin !== site && url.protocol.startsWith('http'),
+      (route) => {
+        const headers = { ...route.request().headers() };
+        delete headers['x-forwarded-for'];
+        return route.fallback({ headers });
+      },
+    );
+    await use(context);
+  },
   osMode: ['classic', { option: true }],
   storageState: async ({ as }, use) => {
     await use(as ? storageStatePath(as) : { cookies: [], origins: [] });
