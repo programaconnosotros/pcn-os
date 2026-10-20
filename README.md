@@ -174,6 +174,19 @@ El script (`scripts/update-github-stats.mjs`) usa `GITHUB_TOKEN` o el token del 
 
 Con Claude Code podés pedirle "actualizá las stats de GitHub": la skill `actualizar-stats-github` corre el script, revisa que los números tengan sentido y commitea el snapshot.
 
+## 🔌 Servidor MCP
+
+El sitio tiene un servidor [MCP](https://modelcontextprotocol.io) en `/api/mcp`: conectado a Claude (claude.ai, Claude Desktop o Claude Code), permite consultar todo lo que guarda el sitio y crear o editar eventos, anuncios y recomendaciones. Lo pueden conectar solo admins con la verificación en dos pasos activada, a través de OAuth.
+
+```bash
+# Claude Code
+claude mcp add --transport http pcn https://programaconnosotros.com/api/mcp
+# En local, con pnpm dev
+claude mcp add --transport http pcn-local https://pcn-website.localhost/api/mcp
+```
+
+En claude.ai: **Settings → Connectors → Add custom connector** con la misma URL. Las conexiones activas se ven y se revocan en `/admin/conexiones-mcp`. Cómo funciona, el catálogo de tools, el modelo de seguridad y cómo agregar una tool: [docs/mcp.md](./docs/mcp.md).
+
 ## 🌿 Trabajo con worktrees (Claude Code)
 
 Si usás `claude -w` para abrir sesiones de Claude Code, cada worktree recibe automáticamente su propia base de datos Postgres aislada.

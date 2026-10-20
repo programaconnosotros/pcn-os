@@ -21,6 +21,16 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: '2026-10-19',
+    area: 'admin',
+    title: 'Servidor MCP para Claude',
+    description:
+      'Los admins con verificación en dos pasos pueden conectar Claude (claude.ai o Claude Code) al sitio: consulta eventos, inscriptos, miembros, anuncios, recomendaciones, charlas, foro y logs, y crea o edita eventos, anuncios y recomendaciones. Cada conexión se autoriza con OAuth y se revoca desde /admin/conexiones-mcp.',
+    authors: ['agustin-sanc'],
+    href: '/desarrollo#mcp',
+    audience: 'admins',
+  },
+  {
     date: '2026-10-17',
     area: 'feed',
     title: 'Bienvenidas con perfil',

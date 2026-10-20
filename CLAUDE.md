@@ -56,6 +56,14 @@ Prisma or tagged `$queryRaw` (enforced by ESLint and `src/lib/sql-safety.test.ts
 user-supplied URLs only through `safeFetch`. `pnpm test:db` runs the integration suite against a
 throwaway local Postgres database.
 
+## MCP server
+
+`/api/mcp` is an OAuth-protected MCP server for admins with 2FA (`src/lib/mcp`, `src/lib/oauth`,
+docs in `docs/mcp.md`). Tools select fields explicitly (`src/lib/mcp/selects.ts`, never
+`include: { user: true }`), write only through the site's own server actions (they run as the
+token's admin via `runAsUser`, so actions must read the session with `getCurrentSession()`), and
+`pnpm test:db -- src/lib/mcp` (the secret-canary test) must pass.
+
 ## Testing
 
 `pnpm test` (unit), `pnpm test:db` (Postgres integration) and `pnpm test:e2e` (Playwright) only run

@@ -17,9 +17,10 @@ octubre de 2026, con una auditoría de todas las server actions y route handlers
 9. [A08 Integridad de software y datos](#a08-integridad-de-software-y-datos)
 10. [A09 Logging y alertas](#a09-logging-y-alertas)
 11. [A10 Manejo de condiciones excepcionales](#a10-manejo-de-condiciones-excepcionales)
-12. [Riesgos aceptados](#riesgos-aceptados)
-13. [Cómo correr los chequeos](#cómo-correr-los-chequeos)
-14. [Reglas para código nuevo](#reglas-para-código-nuevo)
+12. [Servidor MCP y OAuth](#servidor-mcp-y-oauth)
+13. [Riesgos aceptados](#riesgos-aceptados)
+14. [Cómo correr los chequeos](#cómo-correr-los-chequeos)
+15. [Reglas para código nuevo](#reglas-para-código-nuevo)
 
 ---
 
@@ -257,6 +258,40 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 
 ---
 
+## Servidor MCP y OAuth
+
+`/api/mcp` le da a Claude acceso de admin a todo el sitio, así que tiene su propio servidor OAuth
+2.1 (`src/lib/oauth`). El detalle está en [docs/mcp.md](./mcp.md#seguridad). En corto, por
+categoría:
+
+- **A01:**
+  - Solo admins activos con 2FA, chequeado en cada request.
+  - Cada tool corre como ese admin, a través de las mismas server actions (`runAsUser`).
+  - Las conexiones se revocan al degradar, suspender o desactivar a alguien, al resetear su
+    contraseña o al apagar su 2FA.
+- **A02:**
+  - El consentimiento no se puede embeber (`frame-ancestors 'none'`).
+  - Todo va con `no-store`.
+  - Un `Origin` ajeno recibe 403 en `/api/mcp`.
+  - Hay un kill switch, `MCP_ENABLED=false`.
+- **A04:**
+  - Códigos y tokens de 256 bits, guardados solo como SHA-256.
+  - PKCE S256 obligatorio, con comparación en tiempo constante.
+- **A06:**
+  - Los redirect URIs salen de una allowlist (callbacks de Claude y loopback).
+  - El `resource` está atado al token (RFC 8707).
+  - El refresh token rota y detecta reuso.
+  - Rate limits por IP y por conexión, y las listas tienen tope de 100.
+- **A07:** códigos de un solo uso que vencen en 5 minutos, access tokens de 1 hora y refresh de 30
+  días.
+- **A08:** cada input de tool se valida con zod, y después otra vez con el schema de la action.
+- **A09:** registros, autorizaciones, emisiones, revocaciones y escrituras quedan en `AppLog`
+  (`[mcp] …`), y hay alertas a los admins.
+- **A10:**
+  - Los errores de las tools se reducen a mensajes seguros.
+  - Un test con canarios garantiza que ninguna tool de lectura devuelve secretos
+    (`src/lib/mcp/mcp.db.test.ts`).
+
 ## Riesgos aceptados
 
 | Riesgo                                                                       | Por qué lo aceptamos                                                                                |
@@ -267,6 +302,8 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 | `style-src`, `img-src`, `frame-src` y `connect-src` abiertos en la CSP       | El sitio embebe contenido externo y sube a S3; lo que ejecuta código (scripts) sí está restringido. |
 | Organizadores de eventos ven email y teléfono de usuarios al cargar oradores | Lo necesitan para contactarlos; tope de 20 resultados por búsqueda.                                 |
 | Los tests automatizados no corren en CI                                      | Decisión del equipo por tiempo: corren en el `pre-push` (`pnpm test`) y a mano (`pnpm test:db`).    |
+| Cualquiera puede registrar un cliente OAuth del MCP                          | Lo pide el estándar para claude.ai; solo con redirect URIs de la allowlist, 10 por IP por día.      |
+| Un token del MCP tiene acceso de admin completo durante su hora              | Es el propósito del servidor; vence en 1 hora, se revoca desde `/admin/conexiones-mcp`.             |
 
 ## Cómo correr los chequeos
 
@@ -295,3 +332,6 @@ hosts locales.
 7. **Endpoints sin login**: rate limit y tope de tamaño en cada campo.
 8. **Datos sensibles** (contraseñas, teléfonos, emails de otros): que no salgan de la base salvo
    que la consulta los pida y quien la hace tenga permiso.
+9. **Tools del MCP**: `select` explícitos (nunca `include: { user: true }`), escrituras a través de
+   la server action que ya usa la web y el test de canarios (`pnpm test:db -- src/lib/mcp`) en
+   verde. Ver [docs/mcp.md](./mcp.md#cómo-agregar-una-tool).
