@@ -3,6 +3,8 @@ import { resetRateLimits } from '@/lib/rate-limit';
 import { actAs } from '@/test/db/fixtures';
 import { quickUser } from '@/test/db/actions-fixtures';
 import { approveAuthorization } from '@/actions/oauth/approve-authorization';
+import { revokeAllMcpConnections, revokeMcpConnection } from '@/actions/oauth/mcp-connections';
+import { listMcpConnections } from './connections';
 import { POST as register } from '@/app/oauth/register/route';
 import { POST as token } from '@/app/oauth/token/route';
 import { POST as revoke } from '@/app/oauth/revoke/route';
@@ -358,5 +360,40 @@ describe('losing access', () => {
       data: { accessExpiresAt: new Date(Date.now() - 1000) },
     });
     expect(await verifyAccessToken(tokens.access_token, RESOURCE)).toBeNull();
+  });
+});
+
+describe('/admin/conexiones-mcp', () => {
+  it('lists live connections and lets an admin revoke one or all', async () => {
+    const admin = await mcpAdmin();
+    const { clientId, verifier, redirect } = await approvedCode(admin.id);
+    const tokens = await (
+      await exchange(clientId, redirect.searchParams.get('code')!, verifier)
+    ).json();
+
+    const listed = (await listMcpConnections()).find((item) => item.user.id === admin.id);
+    expect(listed).toMatchObject({ clientName: 'Claude Code', redirectHosts: ['localhost:33418'] });
+
+    const member = await quickUser();
+    await actAs(member.id);
+    await expect(revokeMcpConnection(listed!.familyId)).rejects.toThrow('No autorizado');
+    await expect(revokeAllMcpConnections()).rejects.toThrow('No autorizado');
+    expect(await verifyAccessToken(tokens.access_token, RESOURCE)).not.toBeNull();
+
+    await actAs(admin.id);
+    await expect(revokeMcpConnection('not-a-uuid')).rejects.toThrow();
+    await revokeMcpConnection(listed!.familyId);
+    expect(await verifyAccessToken(tokens.access_token, RESOURCE)).toBeNull();
+    expect((await listMcpConnections()).some((item) => item.familyId === listed!.familyId)).toBe(
+      false,
+    );
+
+    const other = await approvedCode(admin.id);
+    const otherTokens = await (
+      await exchange(other.clientId, other.redirect.searchParams.get('code')!, other.verifier)
+    ).json();
+    await actAs(admin.id);
+    await revokeAllMcpConnections();
+    expect(await verifyAccessToken(otherTokens.access_token, RESOURCE)).toBeNull();
   });
 });

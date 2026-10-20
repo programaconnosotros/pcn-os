@@ -10,6 +10,7 @@ export const SITE_ROUTES = [
   '/admin/sponsors',
   '/admin/moderacion',
   '/admin/feed',
+  '/admin/conexiones-mcp',
   '/agents',
   '/analiticas',
   '/anuncios',
