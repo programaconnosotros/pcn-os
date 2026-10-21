@@ -250,7 +250,7 @@ export const adrs: Adr[] = [
       'Funciona igual desde claude.ai, Claude Desktop y Claude Code, sin infraestructura nueva: mismo deploy, misma base, mismos permisos y avisos que la web.',
       'Una tool nueva hereda la validación y los permisos de su server action; el test de canarios impide que una lectura filtre secretos.',
       'Mantenemos código de OAuth propio: cada cambio pasa por los tests de integración del flujo completo (src/lib/oauth/oauth.db.test.ts).',
-      'CloudFront tiene que reenviar el header Authorization y no cachear /api/mcp ni /oauth/*.',
+      'Hoy el sitio llega directo al EC2; si pasa detrás de un CDN, este tiene que reenviar el header Authorization y no cachear /api/mcp ni /oauth/*.',
     ],
     alternatives: [
       'Servidor MCP local por stdio con la DATABASE_URL: no sirve para claude.ai y pone credenciales de producción en cada máquina.',

@@ -189,5 +189,8 @@ Tests que lo sostienen:
   `MCP_PUBLIC_ORIGIN=http://localhost:3000`.
 - **Revocar:** en `/admin/conexiones-mcp`, una conexión o todas.
 - **Auditoría:** en `/monitoreo` (AppLog), filtrando por `[mcp]`.
-- **CloudFront:** tiene que reenviar el header `Authorization` y no cachear `/api/mcp`,
-  `/oauth/*` ni `/.well-known/oauth-*`. Si el token no llega al origen, todos los pedidos dan 401.
+- **CDN:** hoy `programaconnosotros.com` apunta directo al EC2 (kamal-proxy) y CloudFront solo
+  sirve los archivos de S3, así que no hay nada que configurar. Si algún día el sitio pasa detrás de
+  CloudFront, los behaviors de `/api/mcp*`, `/oauth/*` y `/.well-known/oauth-*` tienen que permitir
+  POST y DELETE, reenviar el header `Authorization` (una cache policy con TTL 0 que lo incluya) y
+  no cachear nada. Si el token no llega al origen, todos los pedidos dan 401.
