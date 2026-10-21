@@ -11,9 +11,10 @@ image: pcn-website
 # If using something like Cloudflare, it is recommended to set encryption mode
 # in Cloudflare's SSL/TLS setting to "Full" to enable end-to-end encryption.
 proxy:
-  # CloudFront reaches the server as origin.programaconnosotros.com (a DNS record pointing straight
-  # at this host); programaconnosotros.com itself points at CloudFront. Both get a Let's Encrypt
-  # certificate here, so the site keeps working before and after the DNS switch.
+  # programaconnosotros.com points straight at this host: CloudFront only serves the S3 files.
+  # origin.programaconnosotros.com (also this host) is for the day the site moves behind CloudFront,
+  # which would reach the app through it. Both get a Let's Encrypt certificate here, so the site
+  # keeps working before and after that DNS switch.
   hosts:
     - programaconnosotros.com
     - origin.programaconnosotros.com
