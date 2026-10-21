@@ -73,13 +73,13 @@ export const adrs: Adr[] = [
   {
     number: 3,
     slug: 'deploy-kamal-ec2',
-    title: 'Deploy con Kamal en EC2 detrás de CloudFront, no en Vercel',
+    title: 'Deploy con Kamal en EC2, no en Vercel',
     status: 'aceptada',
     date: '2026-07-01',
     context:
       'Vercel es lo más simple para Next.js, pero factura por uso y por integrante del equipo, y la base y los archivos ya están en AWS. Con pocos ingresos, el costo fijo y previsible pesa más que la comodidad.',
     decision:
-      'Cada merge a main construye una imagen Docker (`Dockerfile.prod`) en GitHub Actions y Kamal la despliega en un EC2 sin downtime. CloudFront queda delante como CDN: cachea `/_next/static` y las imágenes, y llega a la app como `origin.programaconnosotros.com`.',
+      "Cada merge a main construye una imagen Docker (`Dockerfile.prod`) en GitHub Actions y Kamal la despliega en un EC2 sin downtime, detrás de kamal-proxy con certificado de Let's Encrypt. El dominio apunta directo a ese servidor; CloudFront solo sirve los archivos de S3. La app ya está preparada para tener CloudFront delante como CDN (cachear `/_next/static` y las imágenes y llegar a la app como `origin.programaconnosotros.com`), pero ese cambio de DNS no se hizo.",
     consequences: [
       'Costo fijo y bajo; todo en la misma región que la base y S3.',
       'Las funciones de Vercel (previews por PR, edge, ISR distribuido) no están: los previews se reemplazan con screenshots en el PR.',

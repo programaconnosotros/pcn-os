@@ -105,9 +105,10 @@ es pública. Además cada action tiene tests de "sin sesión", "sin permiso" y "
   mapas, videos y webs de proyectos, y sube directo a S3).
 - `/_next/image` solo optimiza imágenes de hosts conocidos (`images.remotePatterns`), y del bucket
   propio, nunca de cualquier `*.amazonaws.com`.
-- `serverActions.allowedOrigins` incluye el dominio público, porque detrás de CloudFront el Host
-  es `origin.programaconnosotros.com`: así sigue funcionando el chequeo CSRF de Next (compara
-  `Origin` con `Host`).
+- `serverActions.allowedOrigins` incluye el dominio público. Hoy el dominio apunta directo al
+  servidor, pero si el sitio pasa detrás de CloudFront el Host va a ser
+  `origin.programaconnosotros.com`, y así el chequeo CSRF de Next (compara `Origin` con `Host`)
+  sigue funcionando.
 - Producción no muestra mensajes de error ni stacks: Next manda un digest genérico.
 
 **Tests.** `src/lib/csp.test.ts` (sin `unsafe-inline` ni `unsafe-eval` en producción, nonce de 128
@@ -137,9 +138,10 @@ el proxy corre en páginas y no en archivos estáticos ni en la API).
   (`src/lib/session.ts`). Quien lea la tabla `Session` no puede usar esos ids.
 - Cookie `httpOnly`, `secure` en producción, `sameSite=lax`.
 - Códigos de verificación con `crypto.randomInt`, no `Math.random`.
-- URLs firmadas de CloudFront y S3 para fotos y uploads; el secreto que prueba que un request vino
-  de CloudFront se compara con `timingSafeEqual`.
-- TLS hasta CloudFront y del servidor a Postgres según `sslmode` (ver `docs/migracion-prisma-7.md`).
+- URLs firmadas de CloudFront y S3 para fotos y uploads. Si el sitio pasa detrás de CloudFront, el
+  secreto que prueba que un request vino de ahí se compara con `timingSafeEqual`.
+- TLS hasta el servidor (kamal-proxy con Let's Encrypt) y del servidor a Postgres según `sslmode`
+  (ver `docs/migracion-prisma-7.md`).
 
 ## A05 Inyección (SQL y XSS)
 
@@ -188,8 +190,9 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 
 - Rate limits por formulario (`src/lib/rate-limit.ts`): login, registro, envío y verificación de
   códigos, contenido, comentarios, ediciones, inscripciones, uploads, descargas, logs y visitas.
-  Cuentan por usuario o por IP; la IP sale de CloudFront (validado con un secreto) o de la última
-  entrada de `x-forwarded-for`, nunca de las que puede escribir el cliente (`src/lib/client-ip.ts`).
+  Cuentan por usuario o por IP; la IP sale de la última entrada de `x-forwarded-for` (la que agrega
+  kamal-proxy) o, si el sitio pasa detrás de CloudFront, de `cloudfront-viewer-address` validado
+  con un secreto; nunca de las que puede escribir el cliente (`src/lib/client-ip.ts`).
 - Los endpoints que se llaman sin login tienen tope de tamaño en cada campo (`trackPageVisit`,
   logs del cliente) para que nadie llene la base.
 - Los textos libres del perfil tienen largo máximo.
