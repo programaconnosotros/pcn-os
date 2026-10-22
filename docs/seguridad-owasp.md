@@ -17,9 +17,10 @@ octubre de 2026, con una auditoría de todas las server actions y route handlers
 9. [A08 Integridad de software y datos](#a08-integridad-de-software-y-datos)
 10. [A09 Logging y alertas](#a09-logging-y-alertas)
 11. [A10 Manejo de condiciones excepcionales](#a10-manejo-de-condiciones-excepcionales)
-12. [Riesgos aceptados](#riesgos-aceptados)
-13. [Cómo correr los chequeos](#cómo-correr-los-chequeos)
-14. [Reglas para código nuevo](#reglas-para-código-nuevo)
+12. [Servidor MCP y OAuth](#servidor-mcp-y-oauth)
+13. [Riesgos aceptados](#riesgos-aceptados)
+14. [Cómo correr los chequeos](#cómo-correr-los-chequeos)
+15. [Reglas para código nuevo](#reglas-para-código-nuevo)
 
 ---
 
@@ -104,9 +105,10 @@ es pública. Además cada action tiene tests de "sin sesión", "sin permiso" y "
   mapas, videos y webs de proyectos, y sube directo a S3).
 - `/_next/image` solo optimiza imágenes de hosts conocidos (`images.remotePatterns`), y del bucket
   propio, nunca de cualquier `*.amazonaws.com`.
-- `serverActions.allowedOrigins` incluye el dominio público, porque detrás de CloudFront el Host
-  es `origin.programaconnosotros.com`: así sigue funcionando el chequeo CSRF de Next (compara
-  `Origin` con `Host`).
+- `serverActions.allowedOrigins` incluye el dominio público. Hoy el dominio apunta directo al
+  servidor, pero si el sitio pasa detrás de CloudFront el Host va a ser
+  `origin.programaconnosotros.com`, y así el chequeo CSRF de Next (compara `Origin` con `Host`)
+  sigue funcionando.
 - Producción no muestra mensajes de error ni stacks: Next manda un digest genérico.
 
 **Tests.** `src/lib/csp.test.ts` (sin `unsafe-inline` ni `unsafe-eval` en producción, nonce de 128
@@ -136,9 +138,10 @@ el proxy corre en páginas y no en archivos estáticos ni en la API).
   (`src/lib/session.ts`). Quien lea la tabla `Session` no puede usar esos ids.
 - Cookie `httpOnly`, `secure` en producción, `sameSite=lax`.
 - Códigos de verificación con `crypto.randomInt`, no `Math.random`.
-- URLs firmadas de CloudFront y S3 para fotos y uploads; el secreto que prueba que un request vino
-  de CloudFront se compara con `timingSafeEqual`.
-- TLS hasta CloudFront y del servidor a Postgres según `sslmode` (ver `docs/migracion-prisma-7.md`).
+- URLs firmadas de CloudFront y S3 para fotos y uploads. Si el sitio pasa detrás de CloudFront, el
+  secreto que prueba que un request vino de ahí se compara con `timingSafeEqual`.
+- TLS hasta el servidor (kamal-proxy con Let's Encrypt) y del servidor a Postgres según `sslmode`
+  (ver `docs/migracion-prisma-7.md`).
 
 ## A05 Inyección (SQL y XSS)
 
@@ -187,8 +190,9 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 
 - Rate limits por formulario (`src/lib/rate-limit.ts`): login, registro, envío y verificación de
   códigos, contenido, comentarios, ediciones, inscripciones, uploads, descargas, logs y visitas.
-  Cuentan por usuario o por IP; la IP sale de CloudFront (validado con un secreto) o de la última
-  entrada de `x-forwarded-for`, nunca de las que puede escribir el cliente (`src/lib/client-ip.ts`).
+  Cuentan por usuario o por IP; la IP sale de la última entrada de `x-forwarded-for` (la que agrega
+  kamal-proxy) o, si el sitio pasa detrás de CloudFront, de `cloudfront-viewer-address` validado
+  con un secreto; nunca de las que puede escribir el cliente (`src/lib/client-ip.ts`).
 - Los endpoints que se llaman sin login tienen tope de tamaño en cada campo (`trackPageVisit`,
   logs del cliente) para que nadie llene la base.
 - Los textos libres del perfil tienen largo máximo.
@@ -257,6 +261,42 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 
 ---
 
+## Servidor MCP y OAuth
+
+`/api/mcp` le da a Claude acceso de admin a todo el sitio, así que tiene su propio servidor OAuth
+2.1 (`src/lib/oauth`). El detalle está en [docs/mcp.md](./mcp.md#seguridad). En corto, por
+categoría:
+
+- **A01:**
+  - Solo admins activos con 2FA, chequeado en cada request; aprobar pide un código de 2FA
+    fresco.
+  - Cada tool corre como ese admin, a través de las mismas server actions (`runAsUser`).
+  - Las conexiones se revocan al degradar, suspender o desactivar a alguien, al resetear su
+    contraseña o al apagar su 2FA.
+- **A02:**
+  - El consentimiento no se puede embeber (`frame-ancestors 'none'`).
+  - Todo va con `no-store`.
+  - Un `Origin` ajeno recibe 403 en `/api/mcp`.
+  - Hay un kill switch, `MCP_ENABLED=false`.
+- **A04:**
+  - Códigos y tokens de 256 bits, guardados solo como SHA-256.
+  - PKCE S256 obligatorio, con comparación en tiempo constante.
+- **A06:**
+  - Los redirect URIs salen de una allowlist (callbacks de Claude y loopback).
+  - El `resource` está atado al token (RFC 8707).
+  - El refresh token rota y detecta reuso, con la fila bloqueada contra carreras.
+  - Rate limits por IP y por conexión, con topes para escrituras y avisos, y las listas tienen
+    tope de 100.
+- **A07:** códigos de un solo uso que vencen en 5 minutos, access tokens de 1 hora y refresh de 30
+  días.
+- **A08:** cada input de tool se valida con zod, y después otra vez con el schema de la action.
+- **A09:** registros, autorizaciones, emisiones, revocaciones y escrituras quedan en `AppLog`
+  (`[mcp] …`), y hay alertas a los admins.
+- **A10:**
+  - Los errores de las tools se reducen a mensajes seguros.
+  - Un test con canarios garantiza que ninguna tool de lectura devuelve secretos
+    (`src/lib/mcp/mcp.db.test.ts`).
+
 ## Riesgos aceptados
 
 | Riesgo                                                                       | Por qué lo aceptamos                                                                                |
@@ -267,6 +307,8 @@ elige de una allowlist de fragmentos fijos con `Prisma.sql`, nunca desde el inpu
 | `style-src`, `img-src`, `frame-src` y `connect-src` abiertos en la CSP       | El sitio embebe contenido externo y sube a S3; lo que ejecuta código (scripts) sí está restringido. |
 | Organizadores de eventos ven email y teléfono de usuarios al cargar oradores | Lo necesitan para contactarlos; tope de 20 resultados por búsqueda.                                 |
 | Los tests automatizados no corren en CI                                      | Decisión del equipo por tiempo: corren en el `pre-push` (`pnpm test`) y a mano (`pnpm test:db`).    |
+| Cualquiera puede registrar un cliente OAuth del MCP                          | Lo pide el estándar para claude.ai; solo con redirect URIs de la allowlist, 10 por IP por día.      |
+| Un token del MCP tiene acceso de admin completo durante su hora              | Es el propósito del servidor; vence en 1 hora, se revoca desde `/admin/conexiones-mcp`.             |
 
 ## Cómo correr los chequeos
 
@@ -295,3 +337,6 @@ hosts locales.
 7. **Endpoints sin login**: rate limit y tope de tamaño en cada campo.
 8. **Datos sensibles** (contraseñas, teléfonos, emails de otros): que no salgan de la base salvo
    que la consulta los pida y quien la hace tenga permiso.
+9. **Tools del MCP**: `select` explícitos (nunca `include: { user: true }`), escrituras a través de
+   la server action que ya usa la web y el test de canarios (`pnpm test:db -- src/lib/mcp`) en
+   verde. Ver [docs/mcp.md](./mcp.md#cómo-agregar-una-tool).

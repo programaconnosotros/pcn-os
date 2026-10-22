@@ -9,7 +9,14 @@ import { buildContentSecurityPolicy, createNonce, NONCE_HEADER } from '@/lib/csp
  */
 export function proxy(request: NextRequest) {
   const nonce = createNonce();
-  const policy = buildContentSecurityPolicy(nonce, { dev: process.env.NODE_ENV === 'development' });
+  const sitePolicy = buildContentSecurityPolicy(nonce, {
+    dev: process.env.NODE_ENV === 'development',
+  });
+  // The MCP consent screen grants access to everything: not even PCN OS may frame it, so a click
+  // on "Permitir" is always a click on the real page (clickjacking).
+  const policy = request.nextUrl.pathname.startsWith('/oauth/')
+    ? sitePolicy.replace("frame-ancestors 'self'", "frame-ancestors 'none'")
+    : sitePolicy;
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(NONCE_HEADER, nonce);

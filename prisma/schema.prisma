@@ -105,24 +105,26 @@ model User {
   recommendations      Recommendation[]      @relation("RecommendationSubmitter")
   reviewedRecs         Recommendation[]      @relation("RecommendationReviewer")
 
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
   forumPosts             ForumPost[]
   forumComments          ForumComment[]
   forumPostLikes         ForumPostLike[]
   forumCommentLikes      ForumCommentLike[]
-  contentReports         ContentReport[]      @relation("ContentReporter")
-  jobOffers              JobOffers[]          @relation("UserJobOffers")
-  resolvedReports        ContentReport[]      @relation("ContentReportResolver")
+  contentReports         ContentReport[]          @relation("ContentReporter")
+  jobOffers              JobOffers[]              @relation("UserJobOffers")
+  resolvedReports        ContentReport[]          @relation("ContentReportResolver")
   hiddenFeedItems        HiddenFeedItem[]
   /// Optional two-factor sign-in (TOTP). The secret is set while setting it up and kept once
   /// confirmed; `twoFactorEnabledAt` says it's on. Recovery codes are stored as SHA-256 hashes.
   twoFactorSecret        String?
   twoFactorEnabledAt     DateTime?
-  twoFactorRecoveryCodes String[]             @default([])
+  twoFactorRecoveryCodes String[]                 @default([])
   /// Last TOTP time step used, so a code can't be replayed within its window.
   twoFactorLastStep      Int?
   twoFactorChallenges    TwoFactorChallenge[]
+  oauthCodes             OAuthAuthorizationCode[]
+  oauthTokens            OAuthToken[]
 }
 
 // Puestos laborales actuales: una persona puede trabajar en más de un lugar a la vez.
@@ -677,6 +679,73 @@ model Notification {
 
 /// A browser where the user turned on push notifications (Web Push). One per device and browser:
 /// the endpoint identifies it. Deleted when the push service says it no longer exists.
+/// An app registered through OAuth dynamic client registration (RFC 7591) to use the MCP server
+/// (/api/mcp, docs/mcp.md). Public clients only: no secret, PKCE on every authorization, and
+/// redirect URIs limited to an allowlist (src/lib/oauth/redirect-uris.ts).
+model OAuthClient {
+  id               String                   @id @default(cuid())
+  name             String
+  redirectUris     String[]
+  /// IP that registered it, to cap registrations per IP.
+  registeredFromIp String?
+  createdAt        DateTime                 @default(now())
+  codes            OAuthAuthorizationCode[]
+  tokens           OAuthToken[]
+
+  @@index([registeredFromIp, createdAt])
+}
+
+/// A single-use authorization code (5 minutes) an admin approved on /oauth/autorizar. The id is the
+/// SHA-256 of the code, like Session: the code itself is never stored.
+model OAuthAuthorizationCode {
+  id            String    @id
+  clientId      String
+  userId        String
+  redirectUri   String
+  /// PKCE S256 challenge (base64url of the verifier's SHA-256).
+  codeChallenge String
+  /// RFC 8707 resource the code was issued for: the canonical /api/mcp URL.
+  resource      String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  /// Token family issued with this code, revoked if someone replays the code.
+  familyId      String?
+  createdAt     DateTime  @default(now())
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// An access/refresh token pair for the MCP server. Only SHA-256 hashes are stored. Every refresh
+/// rotates the pair and keeps the familyId: a rotated refresh token used again revokes the whole
+/// family (someone copied it).
+model OAuthToken {
+  id               String    @id @default(cuid())
+  accessTokenHash  String    @unique
+  refreshTokenHash String    @unique
+  familyId         String
+  clientId         String
+  userId           String
+  resource         String
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime
+  /// Set when this pair was replaced by a refresh (it's revoked at the same time).
+  rotatedAt        DateTime?
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userId])
+  @@index([refreshExpiresAt])
+}
+
 model PushSubscription {
   id        String   @id @default(cuid())
   userId    String

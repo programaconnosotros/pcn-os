@@ -1,4 +1,5 @@
 import {
+  Plug,
   Activity,
   Coffee,
   MousePointerClick,
@@ -424,6 +425,15 @@ export const OS_PROGRAMS: OsProgram[] = [
     url: '/admin/feed',
     icon: EyeOff,
     color: 'from-slate-300 to-zinc-700',
+    group: 'Administración',
+    adminOnly: true,
+  },
+  {
+    id: 'admin-mcp',
+    name: 'Conexiones MCP',
+    url: '/admin/conexiones-mcp',
+    icon: Plug,
+    color: 'from-teal-300 to-cyan-700',
     group: 'Administración',
     adminOnly: true,
   },

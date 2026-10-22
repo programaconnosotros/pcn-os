@@ -3,11 +3,10 @@
 import prisma from '@/lib/prisma';
 import { eventSchema, EventFormData } from '@/schemas/event-schema';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { canEditEvent } from '@/lib/event-permissions';
 import { enforceRateLimit } from '@/lib/rate-limit';
-import { findSession } from '@/lib/session';
+import { getCurrentSession } from '@/actions/auth/get-current-session';
 import { fillFromWaitlist } from '@/lib/event-waitlist';
 import { notifyUsers } from '@/actions/notifications/notify-users';
 import { emailUsers } from '@/actions/notifications/email-users';
@@ -121,21 +120,20 @@ const flyerDesignerRows = async (
   });
 };
 
-export const updateEvent = async (id: string, data: EventFormData) => {
+/**
+ * Saves the edit, tells the people signed up when the date or place changed and fills freed
+ * places from the waitlist. The form calls `updateEvent`, which then opens the event; the MCP
+ * server (src/lib/mcp) calls this one directly.
+ */
+export const updateEventRecord = async (id: string, data: EventFormData) => {
   await enforceRateLimit('editContent');
 
   const validatedData = eventSchema.parse(data);
 
-  const sessionId = (await cookies()).get('sessionId')?.value;
-
-  if (!sessionId) {
-    throw new Error('Usuario no autenticado');
-  }
-
-  const session = await findSession(sessionId);
+  const session = await getCurrentSession();
 
   if (!session) {
-    throw new Error('Sesión no encontrada');
+    throw new Error('Usuario no autenticado');
   }
 
   // Verificar que el evento existe
@@ -212,5 +210,10 @@ export const updateEvent = async (id: string, data: EventFormData) => {
 
   revalidatePath('/eventos');
   revalidatePath(`/eventos/${id}`);
+  return { id };
+};
+
+export const updateEvent = async (id: string, data: EventFormData) => {
+  await updateEventRecord(id, data);
   redirect(`/eventos/${id}`);
 };

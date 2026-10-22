@@ -29,9 +29,10 @@ const nextConfig = {
     // native app. Pull to refresh (`router.refresh()`) and server actions that revalidate still
     // fetch fresh data right away.
     staleTimes: { dynamic: 300 },
-    // Behind CloudFront the server is reached as origin.programaconnosotros.com, so the Host that
-    // Next compares against the browser's Origin header in its server action CSRF check is not the
-    // public domain anymore. The public domain is still a valid origin for server actions.
+    // Today the domain points straight at the server. If the site moves behind CloudFront, the
+    // server is reached as origin.programaconnosotros.com, so the Host that Next compares against
+    // the browser's Origin header in its server action CSRF check is not the public domain
+    // anymore. The public domain stays a valid origin for server actions either way.
     serverActions: { allowedOrigins: ['programaconnosotros.com'] },
     // Next 16.4, development only: compile a dynamic import() (the PCN OS programs, dialogs,
     // charts) the first time the browser asks for it instead of up front, and let Turbopack drop
@@ -42,9 +43,17 @@ const nextConfig = {
   async headers() {
     return [
       { source: '/:path*', headers: securityHeaders },
+      // The MCP OAuth server (docs/mcp.md): consent screen never framed, nothing cached anywhere.
+      {
+        source: '/oauth/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Cache-Control', value: 'no-store' },
+        ],
+      },
       // Images and fonts in public/ have no hash in their name, so Next serves them with
-      // max-age=0 and CloudFront would ask the server for them again on every request. Browsers
-      // keep them for an hour and CloudFront for a week; each deploy invalidates CloudFront
+      // max-age=0. Browsers keep them for an hour; s-maxage is for a CDN in front (CloudFront, once
+      // the site moves behind it), and each deploy invalidates CloudFront
       // (.github/workflows/deployment.yml), so a replaced file shows up right after it ships.
       {
         source: '/:path*\\.(webp|png|jpg|jpeg|gif|svg|avif|ico|woff2)',

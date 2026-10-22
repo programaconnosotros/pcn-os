@@ -2,6 +2,7 @@ import { cookies, headers } from 'next/headers';
 import { clientIpFrom } from '@/lib/client-ip';
 import { rateLimitDigest } from '@/lib/rate-limit-messages';
 import { findSession } from '@/lib/session';
+import { actingSession } from '@/lib/acting-user';
 import { alertRateLimitHit } from '@/lib/security-alerts';
 
 type RateLimitRule = { limit: number; windowSeconds: number };
@@ -33,6 +34,21 @@ export const RATE_LIMITS = {
   aiAgent: { limit: 30, windowSeconds: 60 * 60 },
   // Clicks on a sponsor's logo, counted for the admins (src/actions/sponsors).
   sponsorClick: { limit: 60, windowSeconds: 10 * 60 },
+  // OAuth server of the MCP (src/lib/oauth), counted per IP: registering clients, opening the
+  // consent screen and calling the token endpoint.
+  oauthRegister: { limit: 10, windowSeconds: 60 * 60 },
+  // Every registration, from anywhere: claude.ai registers from one shared IP, so its clients
+  // aren't counted per IP (that would let any claude.ai user lock the admins out).
+  oauthRegisterGlobal: { limit: 300, windowSeconds: 60 * 60 },
+  oauthAuthorize: { limit: 30, windowSeconds: 10 * 60 },
+  oauthToken: { limit: 60, windowSeconds: 10 * 60 },
+  // MCP requests per connection (src/app/api/mcp). Admins aren't exempt here: a leaked token
+  // shouldn't be able to dump the database at full speed.
+  mcp: { limit: 300, windowSeconds: 5 * 60 },
+  // Writes through MCP tools per connection, admins included: an agent misled by text a member
+  // wrote can't flood the site. Tools that notify the whole community get a tighter one.
+  mcpWrite: { limit: 60, windowSeconds: 60 * 60 },
+  mcpNotify: { limit: 5, windowSeconds: 60 * 60 },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
@@ -64,6 +80,11 @@ export const resetRateLimits = () => hits.clear();
 /** IP de quien hace el request (ver `clientIpFrom`), para contar los envíos de anónimos. */
 export const getClientIp = async () => clientIpFrom(await headers()) ?? 'unknown';
 
+const sessionFromCookie = async () => {
+  const sessionId = (await cookies()).get('sessionId')?.value;
+  return sessionId ? findSession(sessionId) : null;
+};
+
 /**
  * Segundos que quien envía (usuario logueado, o IP si es anónimo) tiene que esperar para volver a
  * usar el formulario `name`, registrando el intento si está permitido (0). Los admins no tienen
@@ -72,8 +93,7 @@ export const getClientIp = async () => clientIpFrom(await headers()) ?? 'unknown
  * lanzado llega como un error genérico.
  */
 export const getRateLimitWait = async (name: RateLimitName) => {
-  const sessionId = (await cookies()).get('sessionId')?.value;
-  const session = sessionId ? await findSession(sessionId) : null;
+  const session = actingSession() ?? (await sessionFromCookie());
 
   if (session?.user.role === 'ADMIN') return 0;
 

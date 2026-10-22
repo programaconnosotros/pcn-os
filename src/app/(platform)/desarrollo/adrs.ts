@@ -73,13 +73,13 @@ export const adrs: Adr[] = [
   {
     number: 3,
     slug: 'deploy-kamal-ec2',
-    title: 'Deploy con Kamal en EC2 detrás de CloudFront, no en Vercel',
+    title: 'Deploy con Kamal en EC2, no en Vercel',
     status: 'aceptada',
     date: '2026-07-01',
     context:
       'Vercel es lo más simple para Next.js, pero factura por uso y por integrante del equipo, y la base y los archivos ya están en AWS. Con pocos ingresos, el costo fijo y previsible pesa más que la comodidad.',
     decision:
-      'Cada merge a main construye una imagen Docker (`Dockerfile.prod`) en GitHub Actions y Kamal la despliega en un EC2 sin downtime. CloudFront queda delante como CDN: cachea `/_next/static` y las imágenes, y llega a la app como `origin.programaconnosotros.com`.',
+      "Cada merge a main construye una imagen Docker (`Dockerfile.prod`) en GitHub Actions y Kamal la despliega en un EC2 sin downtime, detrás de kamal-proxy con certificado de Let's Encrypt. El dominio apunta directo a ese servidor; CloudFront solo sirve los archivos de S3. La app ya está preparada para tener CloudFront delante como CDN (cachear `/_next/static` y las imágenes y llegar a la app como `origin.programaconnosotros.com`), pero ese cambio de DNS no se hizo.",
     consequences: [
       'Costo fijo y bajo; todo en la misma región que la base y S3.',
       'Las funciones de Vercel (previews por PR, edge, ISR distribuido) no están: los previews se reemplazan con screenshots en el PR.',
@@ -235,6 +235,34 @@ export const adrs: Adr[] = [
       'Emails: ya existen para lo importante, pero no son inmediatos ni llegan a la pantalla del celular.',
     ],
     references: ['src/lib/web-push.ts', 'src/lib/push-endpoints.ts', 'public/sw.js'],
+  },
+  {
+    number: 12,
+    slug: 'servidor-mcp-oauth',
+    title: 'Servidor MCP remoto dentro del monolito, con OAuth 2.1 propio',
+    status: 'aceptada',
+    date: '2026-10-19',
+    context:
+      'Los admins querían consultar y cargar datos del sitio desde Claude (claude.ai y Claude Code) sin abrir la base ni copiar a mano. claude.ai solo se conecta a servidores MCP remotos y exige OAuth con registro dinámico de clientes. El acceso incluye datos privados (emails, teléfonos, inscriptos), así que un error de diseño expone a toda la comunidad.',
+    decision:
+      'Un endpoint MCP (Streamable HTTP, sin estado) en /api/mcp de la misma app de Next.js, con un servidor OAuth 2.1 propio en src/lib/oauth: clientes públicos, PKCE S256 obligatorio, redirects en allowlist, tokens hasheados atados al recurso y refresh que rota con detección de reuso. Solo admins con 2FA, chequeado en cada request. Las tools de escritura llaman a las server actions existentes corriendo como el admin del token (AsyncLocalStorage en getCurrentSession), en vez de reimplementar la lógica.',
+    consequences: [
+      'Funciona igual desde claude.ai, Claude Desktop y Claude Code, sin infraestructura nueva: mismo deploy, misma base, mismos permisos y avisos que la web.',
+      'Una tool nueva hereda la validación y los permisos de su server action; el test de canarios impide que una lectura filtre secretos.',
+      'Mantenemos código de OAuth propio: cada cambio pasa por los tests de integración del flujo completo (src/lib/oauth/oauth.db.test.ts).',
+      'Hoy el sitio llega directo al EC2; si pasa detrás de un CDN, este tiene que reenviar el header Authorization y no cachear /api/mcp ni /oauth/*.',
+    ],
+    alternatives: [
+      'Servidor MCP local por stdio con la DATABASE_URL: no sirve para claude.ai y pone credenciales de producción en cada máquina.',
+      'Tokens personales (Bearer) generados en /admin: más simple, pero claude.ai no los soporta y no rotan ni vencen solos.',
+      'Un proveedor de identidad externo (Auth0, Clerk): otra cuenta y otro sistema de usuarios para un solo caso, cuando el sitio ya tiene sesiones y 2FA propios.',
+    ],
+    references: [
+      'docs/mcp.md',
+      'src/lib/mcp/registry.ts',
+      'src/lib/oauth/tokens.ts',
+      'src/lib/acting-user.ts',
+    ],
   },
 ];
 

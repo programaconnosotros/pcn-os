@@ -279,7 +279,8 @@ test.describe('public profile as another member', () => {
       'aria-current',
       'page',
     );
-    await expect(page.getByRole('main').getByText(ADVICE.content)).toBeVisible();
+    // The news ticker keeps copies of the same text: the card comes first.
+    await expect(page.getByRole('main').getByText(ADVICE.content).first()).toBeVisible();
 
     await page.goto('/perfil/no-existe');
     await expect(page).toHaveTitle(/^404/);

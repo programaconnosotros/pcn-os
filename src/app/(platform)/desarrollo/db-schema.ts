@@ -39,7 +39,7 @@ export type DbDomain =
   | 'auth'
   | 'sistema';
 
-export const DB_SCHEMA_UPDATED_AT = '2026-10-17';
+export const DB_SCHEMA_UPDATED_AT = '2026-10-19';
 
 export const dbEnums: { name: string; values: string[] }[] = [
   {
@@ -1396,6 +1396,155 @@ export const dbModels: DbModel[] = [
       {
         name: 'metadata',
         type: 'String',
+        optional: true,
+      },
+      {
+        name: 'createdAt',
+        type: 'DateTime',
+      },
+    ],
+    uniques: [],
+  },
+  {
+    name: 'OAuthClient',
+    domain: 'auth',
+    fields: [
+      {
+        name: 'id',
+        type: 'String',
+        pk: true,
+      },
+      {
+        name: 'name',
+        type: 'String',
+      },
+      {
+        name: 'redirectUris',
+        type: 'String',
+        list: true,
+      },
+      {
+        name: 'registeredFromIp',
+        type: 'String',
+        optional: true,
+      },
+      {
+        name: 'createdAt',
+        type: 'DateTime',
+      },
+    ],
+    uniques: [],
+  },
+  {
+    name: 'OAuthAuthorizationCode',
+    domain: 'auth',
+    fields: [
+      {
+        name: 'id',
+        type: 'String',
+        pk: true,
+      },
+      {
+        name: 'clientId',
+        type: 'String',
+        fk: true,
+      },
+      {
+        name: 'userId',
+        type: 'String',
+        fk: true,
+      },
+      {
+        name: 'redirectUri',
+        type: 'String',
+      },
+      {
+        name: 'codeChallenge',
+        type: 'String',
+      },
+      {
+        name: 'resource',
+        type: 'String',
+      },
+      {
+        name: 'expiresAt',
+        type: 'DateTime',
+      },
+      {
+        name: 'usedAt',
+        type: 'DateTime',
+        optional: true,
+      },
+      {
+        name: 'familyId',
+        type: 'String',
+        optional: true,
+      },
+      {
+        name: 'createdAt',
+        type: 'DateTime',
+      },
+    ],
+    uniques: [],
+  },
+  {
+    name: 'OAuthToken',
+    domain: 'auth',
+    fields: [
+      {
+        name: 'id',
+        type: 'String',
+        pk: true,
+      },
+      {
+        name: 'accessTokenHash',
+        type: 'String',
+        unique: true,
+      },
+      {
+        name: 'refreshTokenHash',
+        type: 'String',
+        unique: true,
+      },
+      {
+        name: 'familyId',
+        type: 'String',
+      },
+      {
+        name: 'clientId',
+        type: 'String',
+        fk: true,
+      },
+      {
+        name: 'userId',
+        type: 'String',
+        fk: true,
+      },
+      {
+        name: 'resource',
+        type: 'String',
+      },
+      {
+        name: 'accessExpiresAt',
+        type: 'DateTime',
+      },
+      {
+        name: 'refreshExpiresAt',
+        type: 'DateTime',
+      },
+      {
+        name: 'rotatedAt',
+        type: 'DateTime',
+        optional: true,
+      },
+      {
+        name: 'revokedAt',
+        type: 'DateTime',
+        optional: true,
+      },
+      {
+        name: 'lastUsedAt',
+        type: 'DateTime',
         optional: true,
       },
       {
@@ -3122,6 +3271,38 @@ export const dbRelations: DbRelation[] = [
     to: 'User',
     label: 'user',
     optional: true,
+    many: true,
+    onDelete: 'Cascade',
+  },
+  {
+    from: 'OAuthAuthorizationCode',
+    to: 'OAuthClient',
+    label: 'client',
+    optional: false,
+    many: true,
+    onDelete: 'Cascade',
+  },
+  {
+    from: 'OAuthAuthorizationCode',
+    to: 'User',
+    label: 'user',
+    optional: false,
+    many: true,
+    onDelete: 'Cascade',
+  },
+  {
+    from: 'OAuthToken',
+    to: 'OAuthClient',
+    label: 'client',
+    optional: false,
+    many: true,
+    onDelete: 'Cascade',
+  },
+  {
+    from: 'OAuthToken',
+    to: 'User',
+    label: 'user',
+    optional: false,
     many: true,
     onDelete: 'Cascade',
   },

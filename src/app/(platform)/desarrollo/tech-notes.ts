@@ -1343,6 +1343,71 @@ export const deleteCurrentSession = async () => {
           'https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html',
       },
       {
+        id: 'mcp-oauth',
+        name: 'MCP y OAuth 2.1',
+        tagline: 'Claude conectado al sitio, como un admin',
+        what: 'MCP (Model Context Protocol) es un protocolo abierto para que un modelo como Claude use herramientas de otros sistemas: el servidor publica "tools" con un nombre, una descripción y un schema de entrada, y el cliente las llama con JSON-RPC sobre HTTP. Para un servidor remoto, la autorización es OAuth 2.1: el cliente se registra, manda a la persona a una pantalla de consentimiento y recibe un token de vida corta para llamar a las tools.',
+        concepts: [
+          {
+            term: 'PKCE',
+            detail:
+              'El cliente inventa un secreto (verifier), manda solo su hash (challenge) al pedir la autorización y muestra el verifier al canjear el código: quien intercepte el código no lo puede usar.',
+          },
+          {
+            term: 'registro dinámico',
+            detail:
+              'RFC 7591: el cliente se registra solo, sin que nadie cargue un client_id a mano. Como cualquiera puede registrarse, los redirect URIs van en una allowlist.',
+          },
+          {
+            term: 'refresh token rotation',
+            detail:
+              'Cada refresh devuelve un par nuevo y anula el anterior. Si aparece uno ya usado, dos partes lo tienen: se revoca toda la conexión.',
+          },
+          {
+            term: 'audience (RFC 8707)',
+            detail:
+              'El token dice para qué recurso se emitió y el servidor lo verifica: un token para /api/mcp no sirve en otro lado.',
+          },
+        ],
+        usage: [
+          'El endpoint vive en `src/app/api/mcp` (con `mcp-handler`) y el servidor OAuth en `src/lib/oauth`. Solo pueden conectarse admins con 2FA, y se vuelve a chequear en cada request.',
+          'Las tools de escritura no reimplementan nada: corren con `runAsUser`, que guarda la sesión del admin en un `AsyncLocalStorage`, y llaman a las mismas server actions que los formularios. `getCurrentSession()` mira primero esa sesión.',
+        ],
+        examples: [
+          {
+            file: 'src/lib/acting-user.ts',
+            lang: 'ts',
+            caption:
+              'La sesión se vacía al terminar: lo que sobreviva a la tool deja de actuar como el admin',
+            code: `type Holder = { session: SessionWithUser | null };
+const acting = new AsyncLocalStorage<Holder>();
+
+/** Runs \`fn\` with \`session\` as the current session of every server action it calls. */
+export const runAsUser = async <T>(session: SessionWithUser, fn: () => Promise<T>) => {
+  const holder: Holder = { session };
+  try {
+    return await acting.run(holder, fn);
+  } finally {
+    holder.session = null;
+  }
+};`,
+          },
+          {
+            file: 'src/lib/oauth/crypto.ts',
+            lang: 'ts',
+            caption: 'PKCE S256, comparado en tiempo constante',
+            code: `export const verifyPkce = (verifier: unknown, challenge: string) => {
+  if (typeof verifier !== 'string' || !PKCE_VERIFIER.test(verifier)) return false;
+  const expected = Buffer.from(challenge);
+  const actual = Buffer.from(pkceChallengeFor(verifier));
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+};`,
+          },
+        ],
+        docsUrl: 'https://modelcontextprotocol.io/specification/latest/basic/authorization',
+        sourcePath: 'src/lib/mcp',
+      },
+      {
         id: 'aws',
         name: 'AWS S3 + CloudFront',
         tagline: 'archivos subidos directo del navegador',

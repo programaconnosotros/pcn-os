@@ -3,11 +3,10 @@
 import prisma from '@/lib/prisma';
 import { eventSchema, EventFormData } from '@/schemas/event-schema';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { canCreateEvents } from '@/lib/event-permissions';
 import { enforceRateLimit } from '@/lib/rate-limit';
-import { findSession } from '@/lib/session';
+import { getCurrentSession } from '@/actions/auth/get-current-session';
 import { notifyEveryone } from '@/actions/notifications/notify-users';
 import { emailUsers } from '@/actions/notifications/email-users';
 import { EventNoticeEmail } from '@/components/events/event-notice-email';
@@ -40,21 +39,19 @@ const flyerDesignerRows = async (
   });
 };
 
-export const createEvent = async (data: EventFormData) => {
+/**
+ * Creates the event and notifies everyone, and returns it. The form calls `createEvent`, which
+ * then opens the new event; the MCP server (src/lib/mcp) calls this one directly.
+ */
+export const createEventRecord = async (data: EventFormData) => {
   await enforceRateLimit('createContent');
 
   const validatedData = eventSchema.parse(data);
 
-  const sessionId = (await cookies()).get('sessionId')?.value;
-
-  if (!sessionId) {
-    throw new Error('Usuario no autenticado');
-  }
-
-  const session = await findSession(sessionId);
+  const session = await getCurrentSession();
 
   if (!session) {
-    throw new Error('Sesión no encontrada');
+    throw new Error('Usuario no autenticado');
   }
 
   if (!canCreateEvents(session.user)) {
@@ -143,5 +140,10 @@ export const createEvent = async (data: EventFormData) => {
   }
 
   revalidatePath('/eventos');
+  return event;
+};
+
+export const createEvent = async (data: EventFormData) => {
+  const event = await createEventRecord(data);
   redirect(`/eventos/${event.id}`);
 };

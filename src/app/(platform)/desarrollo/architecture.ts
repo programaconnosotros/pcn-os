@@ -23,10 +23,15 @@ const logical: ArchitectureView = {
     cc["Client Components<br/>shadcn/ui · React Query · react-hook-form"]
     sw["Service worker (PWA)"]
   end
+  subgraph ia["Clientes MCP"]
+    claude["Claude<br/>claude.ai · Claude Code"]
+  end
   subgraph servidor["Servidor Next.js"]
     router["App Router<br/>src/app"]
     actions["Server actions<br/>src/actions"]
     routes["Route handlers<br/>src/app/api · feed.xml · /up"]
+    oauth["Servidor OAuth<br/>/oauth/* · src/lib/oauth"]
+    mcp["Servidor MCP<br/>/api/mcp · src/lib/mcp"]
     schemas["Validación Zod<br/>src/schemas"]
     lib["Dominio y utilidades<br/>src/lib"]
     content["Contenido versionado<br/>src/data · conversaciones"]
@@ -41,6 +46,11 @@ const logical: ArchitectureView = {
   rsc --> router
   cc -- "llamadas RPC" --> actions
   cc -- "fetch" --> routes
+  claude -- "OAuth 2.1 + PKCE" --> oauth
+  claude -- "tools · Bearer" --> mcp
+  mcp -- "como el admin del token" --> actions
+  mcp --> lib
+  oauth --> lib
   sw -. "cachea" .-> rsc
   router --> lib
   router --> content
@@ -77,7 +87,22 @@ const logical: ArchitectureView = {
     {
       term: 'Server actions',
       detail:
-        'src/actions, agrupadas por dominio (auth, events, gallery, talks, comments…). Son la única puerta de escritura: cada una aplica el rate limit, lee la sesión de la cookie, chequea el rol o el dueño del recurso, valida la entrada y después escribe. Al terminar llaman a revalidatePath para refrescar las páginas afectadas.',
+        'src/actions, agrupadas por dominio (auth, events, gallery, talks, comments…). Son la única puerta de escritura: cada una aplica el rate limit, lee la sesión (la de la cookie, o la del admin de un token del MCP), chequea el rol o el dueño del recurso, valida la entrada y después escribe. Al terminar llaman a revalidatePath para refrescar las páginas afectadas.',
+    },
+    {
+      term: 'Claude (clientes MCP)',
+      detail:
+        'claude.ai, Claude Desktop y Claude Code se conectan al servidor MCP del sitio. Solo un admin con verificación en dos pasos puede autorizarlos, y cada conexión actúa como ese admin.',
+    },
+    {
+      term: 'Servidor OAuth',
+      detail:
+        'src/lib/oauth: registro dinámico de clientes (con redirects en allowlist), la pantalla /oauth/autorizar, el token endpoint con PKCE S256 y refresh tokens que rotan, y la revocación. Los tokens se guardan hasheados y valen solo para /api/mcp.',
+    },
+    {
+      term: 'Servidor MCP',
+      detail:
+        'src/app/api/mcp con mcp-handler: 35 tools para leer todo el sitio y escribir eventos, anuncios y recomendaciones. Las escrituras llaman a las mismas server actions que la web, corriendo como el admin del token (runAsUser). Detalle en docs/mcp.md.',
     },
     {
       term: 'Route handlers',
@@ -129,6 +154,7 @@ const physical: ArchitectureView = {
     'Dónde corre cada pieza en producción. Todo vive en AWS: el tráfico de la app entra por un único servidor; los archivos pesados no pasan por él, van directo entre el navegador y S3/CloudFront.',
   source: `flowchart TB
   user["Navegador / PWA"]
+  claude["Claude<br/>claude.ai · Claude Code"]
   dns["DNS<br/>programaconnosotros.com"]
   subgraph aws["AWS"]
     subgraph ec2["Servidor EC2 · Ubuntu"]
@@ -143,6 +169,7 @@ const physical: ArchitectureView = {
   resend["Resend"]
   gh["GitHub<br/>repo · Actions"]
   user --> dns --> proxy
+  claude -- "MCP sobre HTTPS · OAuth" --> dns
   proxy --> app
   app --> db
   app --> s3
@@ -157,6 +184,11 @@ const physical: ArchitectureView = {
       term: 'Navegador / PWA',
       detail:
         'El sitio funciona en cualquier navegador y se puede instalar como app. Pide el HTML al servidor y las imágenes a CloudFront.',
+    },
+    {
+      term: 'Claude',
+      detail:
+        'Los clientes MCP llegan por el mismo dominio que el navegador: /oauth/* para conectarse y /api/mcp para las tools, con el token en el header Authorization. No hay otro servidor ni otro puerto.',
     },
     {
       term: 'DNS',
@@ -401,4 +433,73 @@ const flows: ArchitectureView = {
   ],
 };
 
-export const architectureViews: ArchitectureView[] = [logical, physical, deployment, local, flows];
+const mcpFlow: ArchitectureView = {
+  id: 'mcp',
+  title: 'Conexión de Claude por MCP',
+  summary:
+    'Cómo un admin conecta Claude al sitio y qué pasa en cada llamada a una tool. Nada se concede hasta que el admin, con la sesión iniciada y 2FA, toca permitir; después cada request vuelve a chequear el token y al admin.',
+  source: `sequenceDiagram
+  autonumber
+  participant C as Claude
+  participant B as Navegador del admin
+  participant N as Next.js
+  participant D as PostgreSQL
+  C->>N: POST /api/mcp sin token
+  N-->>C: 401 · WWW-Authenticate (resource_metadata)
+  C->>N: GET /.well-known/oauth-protected-resource y oauth-authorization-server
+  C->>N: POST /oauth/register (redirect_uri en allowlist)
+  N->>D: crea el OAuthClient
+  C->>B: abre /oauth/autorizar?code_challenge=…&state=…
+  B->>N: GET con la cookie de sesión
+  N->>D: valida cliente, redirect y sesión (admin + 2FA)
+  N-->>B: pantalla de consentimiento
+  B->>N: server action approveAuthorization
+  N->>D: guarda el hash del código (5 min, un solo uso)
+  N-->>B: redirect a Claude con code, state e iss
+  B->>C: code
+  C->>N: POST /oauth/token (code + code_verifier)
+  N->>D: quema el código, verifica PKCE y emite tokens hasheados
+  N-->>C: access token (1 h) + refresh token (30 d)
+  Note over C,D: Cada llamada a una tool
+  C->>N: POST /api/mcp · Authorization: Bearer
+  N->>D: busca el hash del token, chequea recurso y admin
+  N->>N: runAsUser → la misma server action que usa la web
+  N->>D: lee o escribe · AppLog si escribe
+  N-->>C: resultado sin secretos (no-store)`,
+  components: [
+    {
+      term: 'Descubrimiento',
+      detail:
+        'El 401 apunta a la metadata del recurso (RFC 9728), que nombra al servidor de autorización (RFC 8414). Claude no necesita nada configurado más que la URL de /api/mcp.',
+    },
+    {
+      term: 'Registro dinámico',
+      detail:
+        'Claude se registra solo (RFC 7591). Solo se aceptan los callbacks de Claude y direcciones locales: nadie puede registrar un cliente que mande los códigos a su servidor.',
+    },
+    {
+      term: 'Consentimiento',
+      detail:
+        'La pantalla muestra el cliente, a dónde vuelve y qué podrá hacer. No se puede embeber en otra página y la aprobación revalida todo en el servidor.',
+    },
+    {
+      term: 'PKCE y tokens',
+      detail:
+        'El código solo sirve con el verificador que Claude guardó al empezar (S256). Los tokens se guardan como SHA-256, están atados a /api/mcp y el refresh rota en cada uso: si vuelve uno viejo, se revoca la conexión.',
+    },
+    {
+      term: 'Llamada a una tool',
+      detail:
+        'Cada request revalida el token y que su admin siga siendo admin, activo y con 2FA, aplica un rate limit por conexión y corre la tool como ese admin. Las respuestas pasan por selects explícitos y un redactor de secretos.',
+    },
+  ],
+};
+
+export const architectureViews: ArchitectureView[] = [
+  logical,
+  physical,
+  deployment,
+  local,
+  flows,
+  mcpFlow,
+];

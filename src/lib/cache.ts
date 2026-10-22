@@ -30,6 +30,10 @@ const UNCACHED_MODELS = new Set<ModelName>([
   'Notification',
   'PasswordResetToken',
   'EmailVerificationToken',
+  // OAuth secrets for the MCP server (hashes, but still credentials): never in a shared cache.
+  'OAuthClient',
+  'OAuthAuthorizationCode',
+  'OAuthToken',
 ]);
 
 // unstable_cache stores JSON, which turns Dates into strings: tag them on the way in and bring

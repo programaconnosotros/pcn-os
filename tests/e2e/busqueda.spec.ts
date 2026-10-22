@@ -71,11 +71,19 @@ test('↑ on the first result and ↓ on the last stay put', async ({ page }) =>
   await page.goto('/');
   await openWithShortcut(page);
   await searchInput(page).fill(EVENTS.upcoming.name);
+  // The full-text search also finds forum topics about "testing": the event comes first.
+  const options = results(page).getByRole('option');
   const option = results(page).getByRole('option', { name: new RegExp(EVENTS.upcoming.name) });
-  await expect(option).toHaveAttribute('aria-selected', 'true');
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true');
+  await expect(options.first()).toContainText(EVENTS.upcoming.name);
   await page.keyboard.press('ArrowUp');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true');
+
+  const count = await options.count();
+  for (let i = 0; i < count; i++) await page.keyboard.press('ArrowDown');
+  await expect(options.last()).toHaveAttribute('aria-selected', 'true');
+
+  for (let i = 0; i < count; i++) await page.keyboard.press('ArrowUp');
   await expect(option).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`/eventos/${EVENTS.upcoming.id}$`));

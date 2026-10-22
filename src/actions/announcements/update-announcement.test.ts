@@ -72,9 +72,7 @@ describe('updateAnnouncement', () => {
     mockCookies({ sessionId: 'session-admin' });
     prismaMock.session.findUnique.mockResolvedValue(null);
 
-    await expect(updateAnnouncement('ann-1', validData)).rejects.toThrow(
-      'No tienes permisos para editar anuncios',
-    );
+    await expect(updateAnnouncement('ann-1', validData)).rejects.toThrow('No autorizado');
     expect(prismaMock.announcement.update).not.toHaveBeenCalled();
   });
 

@@ -5,6 +5,7 @@ import { hashPassword } from '@/lib/password';
 import { getRateLimitWait } from '@/lib/rate-limit';
 import { newPasswordSchema } from '@/lib/validations/auth-schemas';
 import { findValidPasswordResetToken } from '@/lib/verification-codes';
+import { revokeUserOAuthAccess } from '@/lib/oauth/tokens';
 
 export type CompletePasswordResetResult =
   | { success: true }
@@ -57,6 +58,8 @@ export const completePasswordReset = async (
     prisma.session.deleteMany({
       where: { userId: user.id },
     }),
+    // And every MCP connection (src/lib/oauth): whoever had the old password may have made one.
+    ...revokeUserOAuthAccess(user.id),
   ]);
 
   return { success: true };

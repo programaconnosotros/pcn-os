@@ -77,9 +77,7 @@ describe('createAnnouncement', () => {
     mockCookies({ sessionId: 'session-admin' });
     prismaMock.session.findUnique.mockResolvedValue(null);
 
-    await expect(createAnnouncement(validData)).rejects.toThrow(
-      'No tienes permisos para crear anuncios',
-    );
+    await expect(createAnnouncement(validData)).rejects.toThrow('No autorizado');
     expect(prismaMock.announcement.create).not.toHaveBeenCalled();
   });
 

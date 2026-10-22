@@ -61,6 +61,20 @@ const MESSAGES: Record<RateLimitName, (_wait: string) => string> = {
     `Mandaste muchas recomendaciones en la última hora. Para que los admins puedan revisarlas hay un límite: vas a poder recomendar de nuevo en ${wait}.`,
   aiAgent: (wait) =>
     `Usaste mucho los agentes de IA en la última hora. Cada carga cuesta plata, así que hay un límite: probá de nuevo en ${wait} o cargá los datos a mano.`,
+  oauthRegister: (wait) =>
+    `Se registraron demasiadas apps desde tu conexión. Para evitar abusos del servidor MCP pausamos los registros: probá de nuevo en ${wait}.`,
+  oauthRegisterGlobal: (wait) =>
+    `Se están registrando demasiadas apps en el servidor MCP. Probá de nuevo en ${wait}.`,
+  oauthAuthorize: (wait) =>
+    `Abriste demasiadas autorizaciones seguidas. Por seguridad pausamos la pantalla de conexión: probá de nuevo en ${wait}.`,
+  oauthToken: (wait) =>
+    `Hubo demasiados pedidos de tokens seguidos. Por seguridad pausamos el servidor de autorización: probá de nuevo en ${wait}.`,
+  mcp: (wait) =>
+    `Claude hizo demasiados pedidos al servidor MCP en poco tiempo. Para proteger la base pausamos los pedidos: probá de nuevo en ${wait}.`,
+  mcpWrite: (wait) =>
+    `Esta conexión del MCP ya hizo muchos cambios en la última hora. Por seguridad pausamos las escrituras: probá de nuevo en ${wait}.`,
+  mcpNotify: (wait) =>
+    `Esta conexión del MCP ya mandó varios avisos a la comunidad en la última hora. Para no llenar de notificaciones a nadie, probá de nuevo en ${wait}.`,
 };
 
 /** El mensaje para mostrarle a quien llegó al límite de `name`. */

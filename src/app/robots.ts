@@ -22,6 +22,7 @@ export default function robots(): MetadataRoute.Robots {
         '/eventos/nuevo',
         '/eventos/*/editar',
         '/eventos/*/inscripciones',
+        '/oauth/',
       ],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,

@@ -1,22 +1,19 @@
 'use server';
 
 import prisma from '@/lib/prisma';
-import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { announcementSchema, AnnouncementFormData } from '@/schemas/announcement-schema';
-import { findSession } from '@/lib/session';
+import { getCurrentSession } from '@/actions/auth/get-current-session';
 import { notifyEventAnnouncement } from '@/actions/notifications/event-announcement-notice';
 
 export async function createAnnouncement(data: AnnouncementFormData) {
-  const sessionId = (await cookies()).get('sessionId')?.value;
+  const session = await getCurrentSession();
 
-  if (!sessionId) {
+  if (!session) {
     throw new Error('No autorizado');
   }
 
-  const session = await findSession(sessionId);
-
-  if (!session || session.user.role !== 'ADMIN') {
+  if (session.user.role !== 'ADMIN') {
     throw new Error('No tienes permisos para crear anuncios');
   }
 
