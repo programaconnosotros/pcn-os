@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:net';
+import { createServer, type Server, type Socket } from 'node:net';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { pgAdapter, pgConfig, serverAcceptsTls } from './database-url';
 
@@ -102,11 +102,17 @@ describe('serverAcceptsTls', () => {
 
 describe('serverAcceptsTls timeouts', () => {
   let server: Server | undefined;
-  afterEach(() => server?.close());
+  // The server never answers, so it still holds its end of the socket when the client gives up:
+  // close() alone leaves that connection open and the Jest worker can't exit.
+  const sockets: Socket[] = [];
+  afterEach(async () => {
+    sockets.splice(0).forEach((socket) => socket.destroy());
+    await new Promise((resolve) => (server ? server.close(resolve) : resolve(undefined)));
+  });
 
   it('is false when the server never answers', async () => {
     const port = await new Promise<number>((resolve) => {
-      server = createServer(() => {}).listen(0, '127.0.0.1', () => {
+      server = createServer((socket) => void sockets.push(socket)).listen(0, '127.0.0.1', () => {
         const address = server!.address();
         resolve(typeof address === 'object' && address ? address.port : 0);
       });
