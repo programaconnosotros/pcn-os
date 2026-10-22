@@ -32,6 +32,16 @@ describe('MCP tool registry', () => {
       expect(tool.kind).toBe('write');
   });
 
+  // Each of these spends the small mcpNotify budget, so only tools whose action really notifies
+  // members belong here: creating an event or an announcement, and moving an event.
+  it('marks as notifying only the tools whose action notifies members', () => {
+    expect(MCP_TOOLS.filter((tool) => tool.notifies).map((tool) => tool.name)).toEqual([
+      'create_event',
+      'update_event',
+      'create_announcement',
+    ]);
+  });
+
   it('bounds every list', () => {
     for (const tool of MCP_TOOLS) {
       if ('limit' in tool.input.shape)

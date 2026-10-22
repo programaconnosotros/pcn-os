@@ -1377,11 +1377,20 @@ export const deleteCurrentSession = async () => {
           {
             file: 'src/lib/acting-user.ts',
             lang: 'ts',
-            code: `const acting = new AsyncLocalStorage<SessionWithUser>();
+            caption:
+              'La sesión se vacía al terminar: lo que sobreviva a la tool deja de actuar como el admin',
+            code: `type Holder = { session: SessionWithUser | null };
+const acting = new AsyncLocalStorage<Holder>();
 
 /** Runs \`fn\` with \`session\` as the current session of every server action it calls. */
-export const runAsUser = <T>(session: SessionWithUser, fn: () => Promise<T>) =>
-  acting.run(session, fn);`,
+export const runAsUser = async <T>(session: SessionWithUser, fn: () => Promise<T>) => {
+  const holder: Holder = { session };
+  try {
+    return await acting.run(holder, fn);
+  } finally {
+    holder.session = null;
+  }
+};`,
           },
           {
             file: 'src/lib/oauth/crypto.ts',

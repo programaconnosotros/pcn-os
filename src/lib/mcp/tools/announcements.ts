@@ -98,7 +98,6 @@ const updateAnnouncementTool = defineTool({
   title: 'Editar un anuncio',
   area: 'anuncios',
   kind: 'write',
-  notifies: true,
   description:
     'Cambia los campos que le pases de un anuncio (por ejemplo published=true para publicar un borrador); el resto queda igual.',
   input: z.object({ id: idArg, ...z.object(announcementFields).partial().shape }),

@@ -42,7 +42,7 @@ export const oauthError = (
 ) => oauthJson({ error, error_description: description }, status, headers);
 
 export const corsPreflight = () =>
-  new Response(null, { status: 204, headers: { ...OAUTH_CORS_HEADERS } });
+  new Response(null, { status: 204, headers: { ...NO_STORE_HEADERS, ...OAUTH_CORS_HEADERS } });
 
 /** What every OAuth and MCP route answers while the kill switch is on. */
 export const disabledResponse = () =>
