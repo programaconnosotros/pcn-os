@@ -207,6 +207,19 @@ inscribirse se reactiva la misma inscripción (en `/inscripciones` hay una sola 
 **Esperado:** el botón abre la URL externa en otra pestaña y la ruta redirige a ella. No se crea
 inscripción interna, no hay lista de espera y no se ve "inscripciones" para quien gestiona.
 
+### TC-INS-006b: Código de descuento de la inscripción externa
+
+**Pre:** evento con URL de inscripción externa y código de descuento `PCN20`.
+
+1. Sin sesión, abrir la página del evento.
+2. Iniciar sesión, volver y tocar "Ver código de descuento".
+3. Copiar el código desde el diálogo.
+4. Editar el evento, borrar la URL externa y guardar.
+
+**Esperado:** sin sesión no se ve el código (ni en el HTML), solo "Iniciá sesión para verlo". Con
+sesión, el diálogo muestra `PCN20` y lo copia al portapapeles. En el form, el campo solo aparece con
+URL externa; al quitarla, el código se borra. Sin código, no hay botón.
+
 ### TC-INS-007: `/eventos/[id]/inscripcion` sin inscripción externa
 
 1. Abrir `/eventos/[id]/inscripcion` y `/eventos/[id]/inscripcion?autoRegister=true`.

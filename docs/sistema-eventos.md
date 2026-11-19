@@ -35,6 +35,7 @@ Todo está en `prisma/schema.prisma`; acá va lo que importa para entender el co
 | `capacity`                                   | Cupo. `null` = sin límite.                                                                                 |
 | `markedAsFull`                               | Lleno a mano: nadie más se inscribe (va a la lista de espera) y no se promueve a nadie.                    |
 | `externalRegistrationUrl`                    | Inscripción en otro sitio (Luma, etc.): el botón lleva ahí y el sitio no gestiona inscripciones ni espera. |
+| `discountCode`                               | Código de descuento de la inscripción externa, solo para quien tiene cuenta (ver abajo).                   |
 | `callForSpeakersEnabled`                     | Abre `/eventos/[id]/proponer-charla` para que la comunidad proponga charlas.                               |
 | `shortcut`                                   | Slug para URLs cortas en flyers (`/cowork`). Se reutiliza: lleva al **próximo** evento con ese slug.       |
 | `coverPhotoId`, `coverFocusX/Y`, `coverZoom` | Portada del recuerdo de un evento pasado y su encuadre (punto focal en %, zoom en %).                      |
@@ -147,7 +148,11 @@ Helpers:
    `autoRegister=true` e inscribe solo. Si la sesión venció con la página abierta, la action lanza
    `AuthRequiredError` y la UI vuelve a mandar al login.
 2. **Inscripción externa:** con `externalRegistrationUrl`, el botón abre ese link y
-   `registerEvent` rechaza la inscripción.
+   `registerEvent` rechaza la inscripción. Si además tiene `discountCode`, con sesión aparece
+   "Ver código de descuento", que abre un diálogo para copiarlo; sin sesión, un link para iniciar
+   sesión. El código está en el `omit` global de Prisma: `fetchEvent` (cacheado y action pública)
+   no lo trae, la página lo pide aparte y solo lo manda al navegador con sesión. Sin link externo,
+   el código se borra al guardar.
 3. **Evento terminado:** no acepta inscripciones (no deben contar como asistencia).
 4. **Con lugar:** se crea la inscripción, o se reactiva la cancelada.
 5. **Sin lugar** (`markedAsFull` o activas ≥ `capacity`): la persona entra a la lista de espera y

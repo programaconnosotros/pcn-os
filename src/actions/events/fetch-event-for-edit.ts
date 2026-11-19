@@ -14,6 +14,8 @@ export const fetchEventForEdit = async (id: string) => {
     where: {
       id: id,
     },
+    // Quien edita el evento ve y cambia su código de descuento.
+    omit: { discountCode: false },
     include: {
       sponsors: true,
       flyerDesigners: {

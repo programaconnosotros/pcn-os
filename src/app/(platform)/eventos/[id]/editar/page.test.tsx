@@ -57,6 +57,7 @@ describe('EditEventPage', () => {
         googleMapsUrl: 'https://maps.test',
         shortcut: 'meetup',
       }),
+      discountCode: 'PCN20',
       organizers: [],
       sponsors: [
         { id: 's1', name: 'Acme', website: 'https://acme.test' },
@@ -80,6 +81,7 @@ describe('EditEventPage', () => {
         googleMapsUrl: 'https://maps.test',
         capacity: '40',
         externalRegistrationUrl: '',
+        discountCode: 'PCN20',
         shortcut: 'meetup',
         isOnline: false,
         streamingUrl: '',

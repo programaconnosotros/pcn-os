@@ -265,6 +265,9 @@ model Event {
   googleMapsUrl           String? // Link de Google Maps del lugar; de ahí salen el mapa y los links
   capacity                Int? // Cupo máximo del evento (opcional)
   externalRegistrationUrl String? // URL externa de inscripción (ej: Luma)
+  // Código de descuento de la inscripción externa, solo para quienes tienen cuenta. El cliente
+  // de Prisma lo omite por defecto (src/lib/prisma.ts): se pide con `omit: { discountCode: false }`.
+  discountCode            String?
   markedAsFull            Boolean   @default(false)
   callForSpeakersEnabled  Boolean   @default(false)
   isOnline                Boolean   @default(false)

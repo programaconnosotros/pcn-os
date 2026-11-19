@@ -6,6 +6,7 @@ import { registerEvent, type RegistrationResult } from '@/actions/events/registe
 import { RegistrationSuccessDialog } from './registration-success-dialog';
 import { RegisterEventButton, signInUrl } from './register-event-button';
 import { CancelRegistrationButton } from './cancel-registration-button';
+import { DiscountCodeButton } from './discount-code-button';
 import { toast } from 'sonner';
 import { actionErrorMessage } from '@/lib/rate-limit-messages';
 import { isAuthRequiredError } from '@/lib/auth-required';
@@ -23,6 +24,8 @@ type Props = {
     available: boolean;
   } | null;
   externalRegistrationUrl?: string | null;
+  // Descuento de la inscripción externa: null si no hay; `code` solo llega con sesión iniciada.
+  discount?: { code: string | null } | null;
   isFull?: boolean;
   // Posición en la lista de espera si la persona está esperando un lugar
   waitlistPosition?: number | null;
@@ -38,6 +41,7 @@ export function EventDetailClient({
   capacityAvailable,
   capacityInfo,
   externalRegistrationUrl,
+  discount = null,
   isFull = false,
   waitlistPosition: initialWaitlistPosition = null,
   waitlistCount = 0,
@@ -152,13 +156,18 @@ export function EventDetailClient({
   // Renderizar según el estado
   if (externalRegistrationUrl) {
     return (
-      <RegisterEventButton
-        eventId={eventId}
-        isAuthenticated={isAuthenticated}
-        capacityAvailable={true}
-        externalUrl={externalRegistrationUrl}
-        label={isFull ? 'unirmeAListaDeEspera();' : undefined}
-      />
+      <div className="space-y-3">
+        <RegisterEventButton
+          eventId={eventId}
+          isAuthenticated={isAuthenticated}
+          capacityAvailable={true}
+          externalUrl={externalRegistrationUrl}
+          label={isFull ? 'unirmeAListaDeEspera();' : undefined}
+        />
+        {discount && (
+          <DiscountCodeButton eventId={eventId} eventName={eventName} code={discount.code} />
+        )}
+      </div>
     );
   }
 

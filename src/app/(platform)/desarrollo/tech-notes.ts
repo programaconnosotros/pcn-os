@@ -2164,6 +2164,7 @@ export const signGalleryItem = <T extends { src: string; thumbSrc: string }>(ite
   googleMapsUrl           String? // Link de Google Maps del lugar; de ahí salen el mapa y los links
   capacity                Int? // Cupo máximo del evento (opcional)
   externalRegistrationUrl String? // URL externa de inscripción (ej: Luma)
+  discountCode            String? // Descuento de la inscripción externa, solo con cuenta
   markedAsFull            Boolean   @default(false)
   callForSpeakersEnabled  Boolean   @default(false)
   isOnline                Boolean   @default(false)

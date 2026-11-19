@@ -27,6 +27,7 @@ import {
   Link2,
   MapIcon,
   ImageIcon,
+  TicketPercent,
 } from 'lucide-react';
 import { MultiFileUpload } from '@/components/ui/multi-file-upload';
 import Link from 'next/link';
@@ -94,6 +95,7 @@ export function EventForm({
       sponsors: defaultValues?.sponsors || [],
       capacity: defaultValues?.capacity?.toString() || '',
       externalRegistrationUrl: defaultValues?.externalRegistrationUrl ?? '',
+      discountCode: defaultValues?.discountCode ?? '',
       shortcut: defaultValues?.shortcut ?? '',
       isOnline: defaultValues?.isOnline ?? false,
       streamingUrl: defaultValues?.streamingUrl ?? '',
@@ -103,6 +105,7 @@ export function EventForm({
   });
 
   const isOnline = !!form.watch('isOnline');
+  const hasExternalRegistration = !!form.watch('externalRegistrationUrl')?.trim();
   // The end can't be before the start's day.
   const startDay = form.watch('date')?.slice(0, 10) || undefined;
 
@@ -497,6 +500,35 @@ export function EventForm({
                     </FormItem>
                   )}
                 />
+
+                {/* Código de descuento para miembros (solo con inscripción externa) */}
+                {hasExternalRegistration && (
+                  <FormField
+                    control={form.control}
+                    name="discountCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          <TicketPercent className="mr-2 inline h-4 w-4" />
+                          Código de descuento (opcional)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Ej: PCN20"
+                            autoComplete="off"
+                            {...field}
+                            value={field.value ?? ''}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Solo lo ven quienes tienen cuenta en programaConNosotros, desde el botón
+                          &quot;Ver código de descuento&quot; de la página del evento.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 {/* Cupo completo manual */}
                 <FormField

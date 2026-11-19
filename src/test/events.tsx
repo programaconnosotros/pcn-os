@@ -1,7 +1,8 @@
 // Fixtures for the event component tests.
 import type { Event } from '@/generated/prisma/browser';
 
-export type EventWithCounts = Event & {
+// Queries leave out discountCode unless they ask for it (src/lib/prisma.ts).
+export type EventWithCounts = Omit<Event, 'discountCode'> & {
   _count: { registrations: number; talks: number; galleryItems: number };
 };
 

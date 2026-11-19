@@ -106,6 +106,14 @@ describe('eventSchema', () => {
     ]);
   });
 
+  it('trims the discount code and treats empty as none', () => {
+    expect(eventSchema.parse({ ...inPerson, discountCode: '  PCN20 ' }).discountCode).toBe('PCN20');
+    expect(eventSchema.parse({ ...inPerson, discountCode: '   ' }).discountCode).toBeUndefined();
+    expect(messages({ ...inPerson, discountCode: 'x'.repeat(101) })).toEqual([
+      'El código no puede exceder 100 caracteres',
+    ]);
+  });
+
   it('accepts Google Maps links only', () => {
     expect(
       eventSchema.parse({ ...inPerson, googleMapsUrl: ' https://maps.app.goo.gl/abc ' })

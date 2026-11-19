@@ -197,6 +197,32 @@ describe('updateEvent', () => {
   });
 });
 
+describe('updateEvent discount code', () => {
+  const save = async (data: Partial<EventFormData>) => {
+    mockCookies({ sessionId: 'session-admin' });
+    prismaMock.session.findUnique.mockResolvedValue(adminSession as any);
+    prismaMock.event.findUnique.mockResolvedValue(existingEvent as any);
+    prismaMock.$transaction.mockResolvedValue([] as any);
+    await expect(updateEvent('event-1', { ...validEventData, ...data })).rejects.toThrow(
+      'NEXT_REDIRECT:/eventos/event-1',
+    );
+    return prismaMock.event.update.mock.calls.at(-1)![0].data;
+  };
+
+  it('saves the code with an external registration', async () => {
+    const data = await save({ externalRegistrationUrl: 'https://lu.ma/x', discountCode: 'PCN20' });
+    expect(data).toMatchObject({
+      externalRegistrationUrl: 'https://lu.ma/x',
+      discountCode: 'PCN20',
+    });
+  });
+
+  it('clears the code and the link when they are removed', async () => {
+    const data = await save({ externalRegistrationUrl: '', discountCode: 'PCN20' });
+    expect(data).toMatchObject({ externalRegistrationUrl: null, discountCode: null });
+  });
+});
+
 describe('updateEvent dates and sponsors', () => {
   beforeEach(() => {
     mockCookies({ sessionId: 'session-admin' });

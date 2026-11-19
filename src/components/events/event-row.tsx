@@ -6,7 +6,7 @@ import { ChevronRight, MapPin, Video } from 'lucide-react';
 import Link from 'next/link';
 import type { Event } from '@/generated/prisma/browser';
 
-type EventWithCount = Event & { _count: { registrations: number } };
+type EventWithCount = Omit<Event, 'discountCode'> & { _count: { registrations: number } };
 
 export const EventRow: React.FC<{
   event: EventWithCount;

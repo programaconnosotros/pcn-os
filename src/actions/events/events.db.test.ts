@@ -292,6 +292,19 @@ describe('reading events', () => {
     await actAs();
     await expect(fetchEventForEdit(live.id)).rejects.toThrow('No autorizado');
   });
+  it('keeps the discount code out of public reads; only whoever edits the event sees it', async () => {
+    const admin = await createAdmin();
+    await actAs(admin.id);
+    const id = await createdEventId(
+      form({ externalRegistrationUrl: 'https://lu.ma/pcn', discountCode: 'PCN20' }),
+    );
+
+    expect(await fetchEvent(id)).not.toHaveProperty('discountCode');
+    const listed = (await fetchEvents()).find((e) => e.id === id);
+    expect(listed).toBeDefined();
+    expect(listed).not.toHaveProperty('discountCode');
+    expect((await fetchEventForEdit(id))?.discountCode).toBe('PCN20');
+  });
 });
 
 describe('event organizers', () => {

@@ -24,7 +24,10 @@ jest.mock('@/actions/announcements/get-event-announcements', () => ({
 jest.mock('@/lib/session', () => ({ findSession: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({
   __esModule: true,
-  default: { eventRegistration: { findFirst: jest.fn(), findMany: jest.fn() } },
+  default: {
+    eventRegistration: { findFirst: jest.fn(), findMany: jest.fn() },
+    event: { findUnique: jest.fn() },
+  },
 }));
 jest.mock('@/lib/event-index', () => ({ getEventCounts: jest.fn() }));
 jest.mock('@/lib/event-waitlist', () => ({ getWaitlistPosition: jest.fn() }));
@@ -92,6 +95,7 @@ beforeEach(() => {
   jest.mocked(getEventCounts).mockResolvedValue({ activeRegistrations: 0, waitlist: 0 } as never);
   jest.mocked(prisma.eventRegistration.findFirst).mockResolvedValue(null);
   jest.mocked(prisma.eventRegistration.findMany).mockResolvedValue([]);
+  jest.mocked(prisma.event.findUnique).mockResolvedValue(null);
   jest.mocked(getWaitlistPosition).mockResolvedValue(null as never);
 });
 
@@ -331,6 +335,28 @@ describe('EventDetailPage', () => {
       externalRegistrationUrl: 'https://tickets.test',
     });
     expect(screen.queryByRole('link', { name: /ver todas/ })).not.toBeInTheDocument();
+  });
+
+  it('passes the discount code only to someone signed in', async () => {
+    jest.mocked(prisma.event.findUnique).mockResolvedValue({ discountCode: 'PCN20' } as never);
+    const external = buildDetail({ externalRegistrationUrl: 'https://tickets.test' });
+
+    await renderPage(external);
+    expect(registrationProps().discount).toEqual({ code: null });
+
+    signIn();
+    await renderPage(external);
+    expect(registrationProps().discount).toEqual({ code: 'PCN20' });
+  });
+
+  it('shows no discount when the event has no code or uses its own registration', async () => {
+    signIn();
+    await renderPage(buildDetail({ externalRegistrationUrl: 'https://tickets.test' }));
+    expect(registrationProps().discount).toBeNull();
+
+    await renderPage(buildDetail());
+    expect(prisma.event.findUnique).toHaveBeenCalledTimes(1);
+    expect(registrationProps().discount).toBeNull();
   });
 
   it('shows an online event with its stream and both start and end', async () => {

@@ -56,7 +56,8 @@ navegador con cualquier argumento, aunque ningún formulario lo mande.
   fila de la base y verifica el dueño o el rol **sobre esa fila**, nunca sobre un `authorId` que
   mande el cliente. El autor de lo que se crea sale siempre de la sesión.
 - Lo sensible no sale de la base salvo que se pida: el cliente de Prisma omite por defecto el hash
-  de la contraseña y el teléfono de los oradores (`omit` en `src/lib/prisma.ts`).
+  de la contraseña, el teléfono de los oradores y el código de descuento de los eventos (`omit` en
+  `src/lib/prisma.ts`).
 - Las búsquedas que devuelven datos de contacto tienen tope en el servidor
   (`searchUsersForSpeaker` devuelve 20 como máximo, mande lo que mande el navegador).
 - **SSRF** (en 2025 es parte de A01): toda URL que elige un usuario y el servidor pide (la web de

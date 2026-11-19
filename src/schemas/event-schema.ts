@@ -96,6 +96,17 @@ export const eventSchema = z
         message: 'Debe ser una URL válida',
       })
       .transform((val) => (val === '' ? undefined : val)),
+    // Descuento para quienes tienen cuenta en programaConNosotros; solo tiene sentido con
+    // inscripción externa (se descarta sin ella).
+    discountCode: z
+      .string()
+      .max(100, { message: 'El código no puede exceder 100 caracteres' })
+      .optional()
+      .nullable()
+      .transform((val) => {
+        const trimmed = val?.trim() ?? '';
+        return trimmed === '' ? undefined : trimmed;
+      }),
     isOnline: z.preprocess(
       (val) => (val === undefined || val === null ? false : val),
       z.boolean().default(false),

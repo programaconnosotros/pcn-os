@@ -151,7 +151,7 @@ const EventDetailPage: React.FC<{ params: Promise<{ id: string }> }> = async (pr
       : null;
 
   // Todo lo que sigue depende solo del evento y la sesión: se pide en paralelo.
-  const [registration, counts, registrations, eventAnnouncements] = await Promise.all([
+  const [registration, counts, registrations, eventAnnouncements, discountRow] = await Promise.all([
     // Si el usuario ya está registrado (solo inscripciones activas)
     userId && !isExternalEvent
       ? prisma.eventRegistration.findFirst({
@@ -169,7 +169,16 @@ const EventDetailPage: React.FC<{ params: Promise<{ id: string }> }> = async (pr
         })
       : Promise.resolve([] as { cancelledAt: Date | null }[]),
     getEventAnnouncements(id),
+    // El código de descuento no viene en el evento cacheado: se pide aparte y solo llega al
+    // navegador con sesión iniciada.
+    isExternalEvent
+      ? prisma.event.findUnique({ where: { id }, select: { discountCode: true } })
+      : null,
   ]);
+
+  const discount = discountRow?.discountCode
+    ? { code: userId ? discountRow.discountCode : null }
+    : null;
 
   const currentRegistrations =
     event.capacity !== null && counts ? counts.activeRegistrations : null;
@@ -326,6 +335,7 @@ const EventDetailPage: React.FC<{ params: Promise<{ id: string }> }> = async (pr
                     capacityAvailable={capacityInfo?.available ?? true}
                     capacityInfo={capacityInfo}
                     externalRegistrationUrl={event.externalRegistrationUrl}
+                    discount={discount}
                     isFull={isFull}
                     waitlistPosition={waitlistPosition}
                     waitlistCount={waitlistCount}

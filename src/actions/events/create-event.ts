@@ -79,6 +79,10 @@ export const createEvent = async (data: EventFormData) => {
       date: date,
       endDate: endDate,
       googleMapsUrl: validatedData.googleMapsUrl ?? null,
+      externalRegistrationUrl: validatedData.externalRegistrationUrl ?? null,
+      discountCode: validatedData.externalRegistrationUrl
+        ? (validatedData.discountCode ?? null)
+        : null,
       capacity: validatedData.capacity ?? null,
       createdById: session.user.id,
       // Quien crea el evento queda como organizador; el resto se suma desde su página.

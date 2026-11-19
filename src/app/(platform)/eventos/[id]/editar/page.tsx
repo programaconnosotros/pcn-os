@@ -40,6 +40,7 @@ const EditEventPage = async (props: { params: Promise<{ id: string }> }) => {
     googleMapsUrl: event.googleMapsUrl ?? '',
     capacity: event.capacity?.toString() || '',
     externalRegistrationUrl: event.externalRegistrationUrl ?? '',
+    discountCode: event.discountCode ?? '',
     shortcut: event.shortcut ?? '',
     isOnline: event.isOnline ?? false,
     streamingUrl: event.streamingUrl ?? '',

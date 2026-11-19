@@ -73,6 +73,7 @@ describe('prisma client', () => {
         user: { password: true, twoFactorSecret: true, twoFactorRecoveryCodes: true },
         talkSpeaker: { speakerPhone: true },
         talkProposalSpeaker: { speakerPhone: true },
+        event: { discountCode: true },
       },
     });
     expect(extension.name).toBe('data-cache');

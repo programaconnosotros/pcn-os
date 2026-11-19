@@ -46,13 +46,15 @@ const prismaClientSingleton = () => {
   // Datos sensibles que no salen de la base salvo que una consulta los pida con
   // `omit: { campo: false }`: el hash de la contraseña y el secreto y los códigos del segundo
   // factor (solo el login y su configuración) y el teléfono de los
-  // oradores (solo quienes gestionan el evento). Así un `include` que termina en un componente
+  // oradores (solo quienes gestionan el evento), y el código de descuento de un evento (solo
+  // quien tiene cuenta). Así un `include` que termina en un componente
   // de cliente o en una página pública no puede filtrarlos.
   return new PrismaClient({
     adapter: pgAdapter(process.env.DATABASE_URL),
     omit: {
       user: { password: true, twoFactorSecret: true, twoFactorRecoveryCodes: true },
       talkSpeaker: { speakerPhone: true },
+      event: { discountCode: true },
       talkProposalSpeaker: { speakerPhone: true },
     },
   })

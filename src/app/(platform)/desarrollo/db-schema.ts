@@ -39,7 +39,7 @@ export type DbDomain =
   | 'auth'
   | 'sistema';
 
-export const DB_SCHEMA_UPDATED_AT = '2026-10-17';
+export const DB_SCHEMA_UPDATED_AT = '2026-11-19';
 
 export const dbEnums: { name: string; values: string[] }[] = [
   {
@@ -566,6 +566,11 @@ export const dbModels: DbModel[] = [
       },
       {
         name: 'externalRegistrationUrl',
+        type: 'String',
+        optional: true,
+      },
+      {
+        name: 'discountCode',
         type: 'String',
         optional: true,
       },

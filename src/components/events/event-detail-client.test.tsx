@@ -95,6 +95,17 @@ describe('EventDetailClient', () => {
     expect(screen.queryByText('Ya estás registrado')).not.toBeInTheDocument();
   });
 
+  it('shows the discount button next to the external registration', () => {
+    render(
+      <EventDetailClient
+        {...base}
+        externalRegistrationUrl="https://lu.ma/x"
+        discount={{ code: 'PCN20' }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Ver código de descuento' })).toBeInTheDocument();
+  });
+
   it('opens the success dialog when arriving with ?registered=true', async () => {
     setLocation('/eventos/e1', 'registered=true');
     render(<EventDetailClient {...base} />);
